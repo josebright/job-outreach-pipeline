@@ -63,7 +63,7 @@ export async function sendMessage({ from, fromName, to, subject, body, replyTo, 
 
 /**
  * List messages received after a given epoch second (Gmail query: after:).
- * Returns full message payloads including headers.
+ * Returns metadata payloads with a snippet. Body fetch is separate.
  */
 export async function listInboundSince({ afterEpochSec }) {
   const gmail = getGmail();
@@ -77,4 +77,32 @@ export async function listInboundSince({ afterEpochSec }) {
     out.push(full.data);
   }
   return out;
+}
+
+/**
+ * Fetch the full body (text/plain) of a single message. Used for bounce DSN
+ * parsing when the failed address is not in the metadata headers.
+ */
+export async function getMessageBodyText(id) {
+  const gmail = getGmail();
+  const res = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
+  return extractPlainText(res.data?.payload) || res.data?.snippet || '';
+}
+
+function extractPlainText(payload) {
+  if (!payload) return '';
+  if (payload.body?.data) {
+    try { return Buffer.from(payload.body.data, 'base64').toString('utf8'); } catch { /* fall through */ }
+  }
+  for (const part of payload.parts || []) {
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      try { return Buffer.from(part.body.data, 'base64').toString('utf8'); } catch { /* try next */ }
+    }
+  }
+  // Recurse into nested multipart (e.g., multipart/report for DSNs).
+  for (const part of payload.parts || []) {
+    const nested = extractPlainText(part);
+    if (nested) return nested;
+  }
+  return '';
 }

@@ -16,6 +16,8 @@ import {
   draftsByStatus, draftById, contactById, companyById, jobById,
   updateDraftStatus, updateDraftContent,
 } from '../db/repo.js';
+import { getDb } from '../db/connection.js';
+import { recordEvent } from '../db/event-log.js';
 
 export function reviewList() {
   const rows = draftsByStatus('pending_review').map(d => {
@@ -80,6 +82,26 @@ export function reviewReject(id, reason = 'no reason given') {
  * Open $EDITOR on a temp file containing "SUBJECT: ...\n\nBODY".
  * Save the file, close the editor: subject/body are parsed and persisted.
  */
+/**
+ * Manual "the recipient replied but auto-detection missed it" override.
+ * Cancels remaining follow-ups by marking the initial message as replied.
+ */
+export function reviewMarkReplied(id) {
+  const draftId = Number(id);
+  const d = draftById(draftId);
+  if (!d) return console.log(`Draft ${id} not found.`);
+  const db = getDb();
+  const initial = db.prepare(`
+    SELECT * FROM message WHERE draft_id = ? AND kind = 'initial' AND direction = 'outbound'
+    ORDER BY id ASC LIMIT 1
+  `).get(draftId);
+  if (!initial) return console.log(`Draft ${id} has no sent initial message yet; nothing to mark.`);
+  db.prepare(`UPDATE message SET replied_at = datetime('now'), reply_sentiment = 'manual' WHERE id = ?`)
+    .run(initial.id);
+  recordEvent({ entity: 'message', entityId: initial.id, event: 'replied', detail: { sentiment: 'manual' } });
+  console.log(`Marked draft ${id} as replied. Any pending follow-ups will be skipped.`);
+}
+
 export function reviewEdit(id) {
   const d = draftById(Number(id));
   if (!d) return console.log(`Draft ${id} not found.`);

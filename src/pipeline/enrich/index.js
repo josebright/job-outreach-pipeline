@@ -9,7 +9,10 @@ import {
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { logger } from '../util/logger.js';
-import { domainSearch, emailVerifier } from './hunter.js';
+import { domainSearch, emailVerifier as hunterVerifier } from './hunter.js';
+
+// Alias so both usages in this file (Hunter primary + posting-scrape verify) read cleanly.
+const emailVerifier = hunterVerifier;
 import { charge, usage } from './cost-guard.js';
 import { targetHintsFor, titleMatches } from './target.js';
 import { contactsFromPosting, roleTypeFromLocalPart } from './from-posting.js';
@@ -109,29 +112,46 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
       stats.companiesProcessed++;
 
       // Fallback: if Hunter yielded no contact, scan the company's job
-      // postings for emails that appear in the text itself.
+      // postings for emails that appear in the text itself. Every candidate
+      // is Hunter-verified before storing so we never send to an unverified
+      // address (QA 2.4).
       if (uniqueEmails.size === 0) {
         const jobs = getDb().prepare(
           `SELECT description_text FROM job WHERE company_id = ? AND description_text IS NOT NULL LIMIT 20`
         ).all(company.id);
-        for (const j of jobs) {
+        outer: for (const j of jobs) {
           const found = contactsFromPosting({ descriptionText: j.description_text, companyDomainHint: domain });
           for (const c of found) {
-            if (c.quality === 'generic') continue;   // skip careers@/jobs@/hr@
+            if (c.quality === 'generic') continue;
+            // Verify with Hunter before storing. Charge one credit per verification.
+            try { charge(PROVIDER, 1, budget); }
+            catch (err) {
+              if (err.name === 'BudgetExceededError') {
+                stats.budgetExceeded = true;
+                break outer;
+              }
+              throw err;
+            }
+            const v = await emailVerifier({ email: c.email });
+            if (v.status === 'invalid') { stats.invalid++; continue; }
+
             const { created } = upsertContact({
               companyId: company.id,
               fullName: null,
               title: null,
               roleType: roleTypeFromLocalPart(c.local),
               email: c.email,
-              emailStatus: 'risky',                 // posting-scraped is unverified
+              emailStatus: v.status,                // 'verified' or 'risky'
               source: 'posting_scrape',
-              raw: { local: c.local, domain: c.domain, quality: c.quality },
+              raw: { local: c.local, domain: c.domain, quality: c.quality, verification: v.raw },
             });
-            if (created) { stats.contactsCreated++; stats.risky++; }
-            break;                                  // one posting-derived contact per company
+            if (created) {
+              stats.contactsCreated++;
+              if (v.status === 'verified') stats.verified++;
+              else stats.risky++;
+            }
+            break outer;                            // one posting-derived contact per company
           }
-          if (stats.contactsCreated > 0) break;
         }
       }
     } catch (err) {

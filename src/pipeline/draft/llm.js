@@ -27,6 +27,29 @@ export function loadSystemPrompt(promptName = 'outreach_v1') {
   return fs.readFileSync(p, 'utf8');
 }
 
+/**
+ * Wrap an async call with a hard timeout and a small retry policy. Prevents
+ * a hung Anthropic call from blocking the whole draft loop (Q from QA audit).
+ */
+async function withTimeoutAndRetry(fn, { timeoutMs, retries }) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`LLM call exceeded ${timeoutMs}ms timeout`)), timeoutMs)),
+      ]);
+    } catch (err) {
+      lastErr = err;
+      if (attempt === retries) break;
+      const backoff = 1000 * Math.pow(2, attempt);
+      await new Promise(r => setTimeout(r, backoff));
+    }
+  }
+  throw lastErr;
+}
+
 const DRAFT_TOOL = {
   name: 'return_draft',
   description: 'Return the drafted outreach email as structured JSON.',
@@ -67,14 +90,14 @@ export async function generateDraft({
     track,
   };
 
-  const res = await anthropic.messages.create({
+  const res = await withTimeoutAndRetry(() => anthropic.messages.create({
     model,
     max_tokens: 800,
     system,
     tools: [DRAFT_TOOL],
     tool_choice: { type: 'tool', name: 'return_draft' },
     messages: [{ role: 'user', content: JSON.stringify(userPayload) }],
-  });
+  }), { timeoutMs: 25_000, retries: 1 });
 
   const toolUse = res.content?.find(b => b.type === 'tool_use' && b.name === 'return_draft');
   if (!toolUse) throw new Error('LLM did not return the expected tool_use block');

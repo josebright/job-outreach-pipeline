@@ -15,7 +15,7 @@ import { runEnrich } from './enrich/index.js';
 import { runDraft } from './draft/index.js';
 import { runSend } from './send/index.js';
 import { runReport } from './report/index.js';
-import { reviewList, reviewShow, reviewApprove, reviewReject, reviewEdit } from './review/index.js';
+import { reviewList, reviewShow, reviewApprove, reviewReject, reviewEdit, reviewMarkReplied } from './review/index.js';
 
 const commands = {
   async init() {
@@ -99,13 +99,14 @@ const commands = {
     const sub = argv._[1] || 'list';
     const arg = argv._[2];
     switch (sub) {
-      case 'list':    return reviewList();
-      case 'show':    return reviewShow(arg);
-      case 'approve': return reviewApprove(arg);
-      case 'reject':  return reviewReject(arg, argv.reason);
-      case 'edit':    return reviewEdit(arg);
+      case 'list':         return reviewList();
+      case 'show':         return reviewShow(arg);
+      case 'approve':      return reviewApprove(arg);
+      case 'reject':       return reviewReject(arg, argv.reason);
+      case 'edit':         return reviewEdit(arg);
+      case 'mark-replied': return reviewMarkReplied(arg);
       default:
-        logger.error({ sub }, 'unknown review subcommand (list|show|approve|reject|edit)');
+        logger.error({ sub }, 'unknown review subcommand (list|show|approve|reject|edit|mark-replied)');
         process.exit(1);
     }
   },

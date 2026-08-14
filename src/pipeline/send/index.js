@@ -57,21 +57,26 @@ export async function sendApprovedDraft({
     replyTo, threadId, inReplyTo, references,
   });
 
-  incrementSendCount(kind);
   const messageId = result?.messageId || null;
   const rawMessageId = result?.rfc5322MessageId || messageId;
 
+  // Wrap all DB writes in one transaction so a mid-way container kill cannot
+  // leave the send counter incremented without the corresponding message row
+  // (QA 3.3). Either all four writes commit or none do.
   const db = getDb();
-  db.prepare(`
-    INSERT INTO message (draft_id, direction, kind, sent_at, thread_id, message_id)
-    VALUES (?, 'outbound', ?, datetime('now'), ?, ?)
-  `).run(draft.id, kind, result?.threadId || null, rawMessageId);
-
-  if (kind === 'initial') updateDraftStatus(draft.id, 'sent');
-  recordEvent({
-    entity: 'draft', entityId: draft.id, event: 'sent',
-    detail: { kind, messageId: rawMessageId, threadId: result?.threadId || null },
+  const tx = db.transaction(() => {
+    incrementSendCount(kind);
+    db.prepare(`
+      INSERT INTO message (draft_id, direction, kind, sent_at, thread_id, message_id)
+      VALUES (?, 'outbound', ?, datetime('now'), ?, ?)
+    `).run(draft.id, kind, result?.threadId || null, rawMessageId);
+    if (kind === 'initial') updateDraftStatus(draft.id, 'sent');
+    recordEvent({
+      entity: 'draft', entityId: draft.id, event: 'sent',
+      detail: { kind, messageId: rawMessageId, threadId: result?.threadId || null },
+    });
   });
+  tx();
 
   return result;
 }
