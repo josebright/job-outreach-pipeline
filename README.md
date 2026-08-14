@@ -1,117 +1,101 @@
 # Job Outreach Pipeline
 
-A seven-module pipeline that discovers companies actively hiring remote engineers, qualifies them, enriches with decision-maker contacts, drafts personalized outreach, and sends after human approval. Follows [PRD-remote-job-outreach-system.md](PRD-remote-job-outreach-system.md).
+Discovers companies actively hiring remote software engineers, qualifies fit against a configured profile, enriches with decision-maker contacts, drafts personalized outreach with an LLM, and sends after human approval. Runs as a Railway cron job. State lives in SQLite.
 
-## Quick start
+See [PRD-remote-job-outreach-system.md](PRD-remote-job-outreach-system.md) for the full design.
 
-```bash
-# 1. Install
-npm install
+## Architecture
 
-# 2. Configure
-cp .env.example .env                 # fill in the keys listed in .env.example
-cp config.example.yaml config.yaml   # already committed for you if this is a fresh clone
+Seven modules in a linear pipeline. Each is a CLI subcommand, idempotent, and re-runnable.
 
-# 3. Create the SQLite DB and run migrations
-npm run pipeline:init
-
-# 4. Run tests to verify wiring
-npm test
-
-# 5. Individual modules (each command is idempotent)
-npm run pipeline:discover     # Module 1: find company slugs
-npm run pipeline:ingest       # Module 2: fetch jobs from ATS APIs
-npm run pipeline:qualify      # Module 3: filter + score (Week 3)
-npm run pipeline:enrich       # Module 4: find contacts (Week 4)
-npm run pipeline:draft        # Module 5: LLM drafts (Week 5)
-npm run pipeline:send         # Module 6: approved sends only (Week 5)
-npm run pipeline:report       # Module 7: funnel report
-
-# One-shot daily run (excludes send, which is human-gated)
-npm run pipeline:daily
+```text
+discover  ->  ingest  ->  qualify  ->  enrich  ->  draft  ->  send  ->  report
+   |            |            |           |          |         |
+company     job posts    filter +    contacts +   LLM      approved
+slugs from  from ATS     score       verified     +hook    only,
+seed+SERP+  APIs                     emails       check    daily cap
+aggregators
 ```
 
-## Current status (Weeks 1-2 complete)
+Every state transition is written to `event_log` for audit and replay.
 
-**Week 1 foundation:**
+## Sending safety (enforced in code, covered by tests)
 
-- SQLite schema and migration runner (`migrations/001_initial_schema.sql`)
-- Config with Zod validation (`config.example.yaml` + `src/pipeline/config/`)
-- Event log with append-only history of every state transition
-- Repo layer for company, job, contact, draft, message, suppression, send counters, dead slugs
-- HTTP client with retry/backoff and per-host concurrency limits
-- Structured logging (pino)
-- CLI with all eight subcommands
-- Send guards: cannot send unapproved drafts, cannot send to suppressed addresses, cannot exceed daily cap
+- A draft with any status other than `approved` cannot be sent.
+- Any address in the suppression list cannot be sent to. Case-insensitive.
+- Daily send caps are persisted to SQLite, so restarts do not reset the count.
 
-**Week 2 discovery + ingest:**
+These invariants live in `src/pipeline/send/index.js` and cannot be bypassed by any caller.
 
-- All four ATS clients real: Greenhouse, Lever, Ashby, Workable (each with `probe` + `fetchJobs`)
-- Shared classifiers for workplace type, remote scope, currency, slug candidates
-- Aggregator feeds: Remotive + RemoteOK, with dedup and hint extraction from URLs
-- Slug resolver: turns aggregator company names into (ats, slug) pairs by probing candidate variants
-- Discover module wired end-to-end: seed CSV -> SERP dorks -> aggregators
-- 48 tests across 10 files, all green, covering fixtures for every ATS + aggregator
+## Configuration
 
-Not yet implemented (per PRD phase plan):
+Two files, two roles.
 
-- Week 3: Qualify module (Q1-Q5 filters + scoring) + 50-posting labeled test set
-- Week 4: Enrich module (Hunter integration + verifier + cost guard)
-- Week 5: Draft module (LLM + hook_evidence), review UI (Airtable), Gmail send, follow-up scheduler, reply detection
-- Week 6+: Track/tune, weekly report breakdowns
+- `config.yaml` — non-secret runtime tunables: keyword lists, allow/deny locations, currency map, scoring weights, ATS platforms, send caps, sender identity. Validated by Zod on startup.
+- `.env` — secrets only: API keys and OAuth credentials. See `.env.example` for the full list and how to obtain each.
+
+For local dev, copy `config.example.yaml` to `config.yaml` and `.env.example` to `.env`.
+
+## Local usage
+
+```bash
+npm install
+npm run pipeline:init      # create SQLite and apply migrations
+npm test                   # 48 tests, all green
+npm run pipeline:discover  # populate companies
+npm run pipeline:ingest    # pull jobs from ATS APIs
+npm run pipeline:report    # show funnel counts
+```
+
+Each subcommand is documented in `src/pipeline/cli.js`.
+
+## Deployment
+
+Runs on Railway as a **cron service**. The container spins up on schedule (`0 7 * * *` UTC by default, see `railway.json`), runs `pipeline:daily`, exits. SQLite state persists across runs via a Railway Volume mounted at `/app/data`.
+
+### First-time setup
+
+The initial deployment was done once from this repo:
+
+1. `git init && git push` to a GitHub repo.
+2. In Railway → **New Project** → **Deploy from GitHub repo**.
+3. `railway link` to the project locally.
+4. `railway volume add --mount-path /app/data` to attach persistent storage.
+5. `railway variables --set KEY=VALUE ...` to push every `.env` key, plus `PIPELINE_DB_PATH=/app/data/pipeline.db` and `NODE_ENV=production`.
+
+Redeploys happen automatically on `git push` to `main`.
+
+### Cost
+
+Hobby plan $5/month + 5GB Volume $1.25/month = about **$6.25/month**.
 
 ## Directory layout
 
 ```text
 src/pipeline/
-├── cli.js                          # single entry point (yargs subcommands)
+├── cli.js                          # yargs subcommands
 ├── db/                             # SQLite: connection, migrate, repo, event log
 ├── config/                         # loader + Zod schema
 ├── util/                           # logger, http
 ├── discover/                       # Module 1
-│   ├── seed.js                     # CSV loader
-│   ├── serp.js                     # Serper.dev dork discovery
+│   ├── seed.js                     # CSV loader (data/seed_companies.csv)
+│   ├── serp.js                     # Google PSE + Serper dork search
 │   ├── resolve-slug.js             # company name -> (ats, slug) via probing
 │   └── aggregators/                # remotive.js, remoteok.js
 ├── ingest/                         # Module 2
 │   └── ats/                        # classify.js + greenhouse | lever | ashby | workable
-├── qualify/                        # Module 3 (stub)
-├── enrich/                         # Module 4 (stub)
-├── draft/                          # Module 5 (stub + hook verifier)
-├── send/                           # Module 6 (guards live, transport stub)
+├── qualify/                        # Module 3
+├── enrich/                         # Module 4
+├── draft/                          # Module 5 (+ hook_evidence verifier)
+├── send/                           # Module 6 (guards + Gmail transport)
 └── report/                         # Module 7
 
-migrations/001_initial_schema.sql   # applied by src/pipeline/db/migrate.js
-prompts/outreach_v1.txt             # LLM prompt for Module 5
+migrations/                         # applied by src/pipeline/db/migrate.js
+prompts/                            # LLM system prompts (versioned)
 tests/                              # vitest suite + fixtures
-config.example.yaml
-.env.example
-railway.json                        # Railway cron deployment
 ```
-
-## Deploying to Railway
-
-The pipeline is designed to run as a **Railway cron job**, not a long-running service. Each cron fire spins up a fresh container, runs `pipeline:daily`, and exits. State is preserved in a mounted Volume holding `data/pipeline.db`.
-
-### One-time setup
-
-1. Create a GitHub repo and push this code.
-2. In Railway → your workspace → **New Project** → **Deploy from GitHub repo** → pick the repo.
-3. **Settings → Volumes → Add Volume**: mount path `/app/data`, size `1 GB`.
-4. **Variables**: paste every key from your local `.env` one at a time. Do not upload `.env` itself.
-5. Add these two extra variables:
-   - `PIPELINE_DB_PATH=/app/data/pipeline.db`
-   - `NODE_ENV=production`
-6. Railway reads `railway.json` for the cron schedule (default: `0 7 * * *`, meaning 07:00 UTC = 08:00 WAT).
-
-### Verifying a run
-
-Railway → **Deployments** → click the latest run → **View Logs**. You will see structured pino output ending with the funnel report line.
-
-### Cost estimate
-
-Hobby plan is $5/month flat. A daily cron run of 2 to 5 minutes uses a small fraction of the included execution time. The 1GB Volume adds about $0.25/month. Total: under $6/month.
 
 ## Requirements
 
 - Node.js 22 LTS or newer
+- macOS or Linux for local dev (better-sqlite3 needs a native compile)
