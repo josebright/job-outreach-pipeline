@@ -59,6 +59,8 @@ achievements:
   - "Built CoinForBarter Scan-to-Pay, POS, and a merchant-facing PHP SDK end-to-end, delivering a complete multi-surface crypto payment stack that reached YC-warm interest."
   - "Progressed Intern to Tech Lead at FirstFounders inside 12 months, owning deployments across 8+ production sites with incident-free launches."
   - "At Tek Experts, drove Azure right-sizing and lifecycle changes that saved enterprise customers over 200 USD/month per account while diagnosing pipeline, RBAC, and container failures."
+  - "Mentored 50+ developers and led a 10-person core team through CapacityDey Tech Club, moving early-career engineers to client-ready in 6-month cycles with SDLC, UX, and security-focused practice."
+  - "Integrated four payment gateways in production (Stripe, PayPal, Flutterwave, Paystack) across fintech and crypto products, handling checkout, verification, and merchant SDKs end-to-end."
 
 # One-liner used when the LLM needs a compact intro.
 one_liner: >

@@ -2,6 +2,7 @@
 // Q1-Q5 hard filters per PRD section 5, Module 3.
 // Each filter returns { pass: boolean, reason: string|null, needsReview?: boolean }.
 // A reason is populated whenever the job is not a clean pass.
+import { extractAnnualSalary } from './salary.js';
 
 const norm = s => (s || '').toLowerCase();
 const compact = s => norm(s).replace(/\s+/g, ' ');
@@ -22,7 +23,22 @@ export function q1_roleMatches(job, config) {
   if (!hasKeyword) return { pass: false, reason: 'no_stack_keyword_match' };
 
   const hasReject = (seniority_reject || []).some(r => wordBoundary(title, norm(r)));
-  if (hasReject) return { pass: false, reason: 'seniority_below_target' };
+  if (hasReject) {
+    // Junior-with-good-pay override: if the posting explicitly states a
+    // salary at or above the configured floor, accept the role anyway.
+    const floor = config.stack?.junior_override_min_annual || 0;
+    if (floor > 0) {
+      const salary = extractAnnualSalary({
+        compRaw: job.comp_raw,
+        descriptionText: job.description_text,
+        acceptedCurrencies: config.currency?.accept || ['USD', 'EUR', 'GBP'],
+      });
+      if (salary && salary.annual >= floor) {
+        return { pass: true, reason: null };
+      }
+    }
+    return { pass: false, reason: 'seniority_below_target' };
+  }
 
   return { pass: true, reason: null };
 }

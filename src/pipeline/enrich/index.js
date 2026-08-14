@@ -12,6 +12,7 @@ import { logger } from '../util/logger.js';
 import { domainSearch, emailVerifier } from './hunter.js';
 import { charge, usage } from './cost-guard.js';
 import { targetHintsFor, titleMatches } from './target.js';
+import { contactsFromPosting, roleTypeFromLocalPart } from './from-posting.js';
 
 const PROVIDER = 'hunter';
 
@@ -109,6 +110,33 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
       }
 
       stats.companiesProcessed++;
+
+      // Fallback: if Hunter yielded no contact, scan the company's job
+      // postings for emails that appear in the text itself.
+      if (uniqueEmails.size === 0) {
+        const jobs = getDb().prepare(
+          `SELECT description_text FROM job WHERE company_id = ? AND description_text IS NOT NULL LIMIT 20`
+        ).all(company.id);
+        for (const j of jobs) {
+          const found = contactsFromPosting({ descriptionText: j.description_text, companyDomainHint: domain });
+          for (const c of found) {
+            if (c.quality === 'generic') continue;   // skip careers@/jobs@/hr@
+            const { created } = upsertContact({
+              companyId: company.id,
+              fullName: null,
+              title: null,
+              roleType: roleTypeFromLocalPart(c.local),
+              email: c.email,
+              emailStatus: 'risky',                 // posting-scraped is unverified
+              source: 'posting_scrape',
+              raw: { local: c.local, domain: c.domain, quality: c.quality },
+            });
+            if (created) { stats.contactsCreated++; stats.risky++; }
+            break;                                  // one posting-derived contact per company
+          }
+          if (stats.contactsCreated > 0) break;
+        }
+      }
     } catch (err) {
       if (err.name === 'BudgetExceededError') {
         logger.warn({ used: err.used, budget: err.budget }, 'hunter budget exhausted, stopping');

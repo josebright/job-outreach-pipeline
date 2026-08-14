@@ -19,6 +19,9 @@ stack:
     - api
   seniority_accept: [senior, staff, principal, lead, sr, sr., "mid-senior"]
   seniority_reject: [intern, internship, junior, jr, graduate, "new grad", entry, entry-level]
+  # Junior override: accept a rejected-seniority role if the posting states
+  # an explicit annual salary >= this number in USD/EUR/GBP. 36000 = 3000/mo.
+  junior_override_min_annual: 36000
 
 # ── Location fit (Q2 filter) ───────────────────────────────────
 location:

@@ -8,6 +8,10 @@ const stackSchema = z.object({
   keywords: z.array(z.string()).min(1),
   seniority_accept: z.array(z.string()).min(1),
   seniority_reject: z.array(z.string()).default([]),
+  // If a rejected-seniority role has an explicit annual salary at or above
+  // this number (in any accepted currency), accept it anyway. Set to 0 to
+  // disable the override.
+  junior_override_min_annual: z.number().nonnegative().default(0),
 });
 
 const locationSchema = z.object({

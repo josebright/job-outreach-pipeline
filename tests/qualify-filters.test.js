@@ -11,6 +11,7 @@ const config = {
     keywords: ['software engineer', 'backend', 'node', 'python', 'typescript', 'react'],
     seniority_accept: ['senior', 'staff', 'principal'],
     seniority_reject: ['intern', 'junior', 'jr', 'graduate', 'entry'],
+    junior_override_min_annual: 36000,
   },
   location: {
     allow: ['remote worldwide', 'worldwide', 'anywhere', 'emea', 'africa', 'fully remote'],
@@ -49,6 +50,33 @@ describe('Q1: role matches profile', () => {
     const job = { title: 'Backend Engineer', description_text: 'senior-level roadmap for the team' };
     // reject list contains 'jr' etc, not 'senior'. Should pass.
     expect(q1_roleMatches(job, config).pass).toBe(true);
+  });
+
+  it('junior override: passes junior role when salary meets floor', () => {
+    const job = {
+      title: 'Junior Backend Engineer',
+      description_text: 'Node.js. Compensation: $60,000 USD annually.',
+      comp_raw: '$60,000/year USD',
+    };
+    expect(q1_roleMatches(job, config).pass).toBe(true);
+  });
+
+  it('junior override: still rejects when salary is below floor', () => {
+    const job = {
+      title: 'Junior Backend Engineer',
+      description_text: 'Node.js. Salary $20,000 USD annually.',
+    };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toBe('seniority_below_target');
+  });
+
+  it('junior override: rejects when no salary is stated', () => {
+    const job = {
+      title: 'Junior Backend Engineer',
+      description_text: 'Node.js. Competitive salary.',
+    };
+    expect(q1_roleMatches(job, config).pass).toBe(false);
   });
 });
 
