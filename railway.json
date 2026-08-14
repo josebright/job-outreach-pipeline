@@ -6,6 +6,6 @@
   "deploy": {
     "startCommand": "npm run pipeline:daily",
     "restartPolicyType": "NEVER",
-    "cronSchedule": "*/5 * * * *"
+    "cronSchedule": "0 7 * * *"
   }
 }
