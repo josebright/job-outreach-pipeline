@@ -1,9 +1,157 @@
 // enrich/index.js
-// Module 4 per PRD. Hunter + Apollo + Proxycurl integration + verification + cost guard.
-// Full implementation lands in Week 4.
+// Module 4 per PRD. For each qualified company, find 1-3 decision-maker
+// contacts with verified emails via Hunter.io.
+//
+// Priority order: highest-scoring companies first. Cost guard bails cleanly
+// when the monthly Hunter budget is exhausted, without failing the run.
+import {
+  companiesByStatus, contactCountForCompany, upsertContact,
+} from '../db/repo.js';
+import { getDb } from '../db/connection.js';
 import { logger } from '../util/logger.js';
+import { domainSearch, emailVerifier } from './hunter.js';
+import { charge, usage } from './cost-guard.js';
+import { targetHintsFor, titleMatches } from './target.js';
 
-export async function runEnrich({ config: _config } = {}) {
-  logger.info('enrich: not yet implemented (Week 4 milestone)');
-  return { contactsFound: 0, verified: 0, risky: 0, invalid: 0 };
+const PROVIDER = 'hunter';
+
+/**
+ * Run enrichment against all qualified companies, in company.score order.
+ * @param {object} args
+ * @param {object} args.config
+ * @param {number} [args.maxCompanies] hard cap (safety)
+ */
+export async function runEnrich({ config, maxCompanies = 200 } = {}) {
+  const stats = {
+    companiesProcessed: 0,
+    contactsCreated: 0,
+    verified: 0,
+    risky: 0,
+    invalid: 0,
+    budgetExceeded: false,
+    skippedNoDomain: 0,
+  };
+
+  const budget = config.enrichment.monthly_budget_usd;
+  // Hunter Starter is $34/mo for 500 searches + 1000 verifications.
+  // We treat "units" here as generic "calls" and let the ledger budget be in USD.
+  // For a $40/mo budget we'll allow up to ~500 calls (>1 credit each on average).
+  // A more precise model is future work when we start actually paying.
+  const before = usage(PROVIDER, budget);
+  logger.info({ ...before }, 'hunter budget status');
+  if (before.remaining <= 0) {
+    stats.budgetExceeded = true;
+    return stats;
+  }
+
+  const companies = companiesByStatus('qualified').slice(0, maxCompanies);
+
+  for (const company of companies) {
+    if (contactCountForCompany(company.id) > 0) continue;      // already enriched
+    const domain = deriveDomain(company);
+    if (!domain) { stats.skippedNoDomain++; continue; }
+
+    try {
+      // Charge 1 credit per domain-search call up front (Hunter says
+      // 1 credit per 10 results; we're approximating).
+      charge(PROVIDER, 1, budget);
+      const hints = targetHintsFor(company);
+      const uniqueEmails = new Map();
+
+      for (const hint of hints) {
+        const res = await domainSearch({
+          domain,
+          seniority: hint.seniority,
+          department: hint.department,
+          limit: 10,
+        });
+        for (const e of res.emails || []) {
+          if (!e.value) continue;
+          if (!titleMatches(e.position, hint.titleAny) && hint.titleAny?.length) continue;
+          if (!uniqueEmails.has(e.value.toLowerCase())) {
+            uniqueEmails.set(e.value.toLowerCase(), { emailData: e, roleType: hint.roleType });
+          }
+          if (uniqueEmails.size >= 3) break;
+        }
+        if (uniqueEmails.size >= 3) break;
+      }
+
+      // Verify + persist up to 3 contacts.
+      for (const { emailData, roleType } of uniqueEmails.values()) {
+        // Prefer Hunter's inline verification field, fall back to explicit verifier.
+        let statusLabel = mapVerification(emailData.verification?.status);
+        let rawVer = emailData.verification || null;
+
+        if (!statusLabel) {
+          charge(PROVIDER, 1, budget);
+          const v = await emailVerifier({ email: emailData.value });
+          statusLabel = v.status;
+          rawVer = v.raw;
+        }
+
+        if (statusLabel === 'verified') stats.verified++;
+        else if (statusLabel === 'risky') stats.risky++;
+        else stats.invalid++;
+
+        if (statusLabel === 'invalid') continue;
+
+        const { created } = upsertContact({
+          companyId: company.id,
+          fullName: [emailData.first_name, emailData.last_name].filter(Boolean).join(' ') || null,
+          title: emailData.position || null,
+          roleType,
+          email: emailData.value,
+          emailStatus: statusLabel,
+          source: 'hunter',
+          raw: { hunter: emailData, verification: rawVer },
+        });
+        if (created) stats.contactsCreated++;
+      }
+
+      stats.companiesProcessed++;
+    } catch (err) {
+      if (err.name === 'BudgetExceededError') {
+        logger.warn({ used: err.used, budget: err.budget }, 'hunter budget exhausted, stopping');
+        stats.budgetExceeded = true;
+        break;
+      }
+      logger.error({ err: err.message, companyId: company.id }, 'enrich failed for company');
+    }
+  }
+
+  logger.info(stats, 'enrich pass complete');
+  return stats;
+}
+
+/**
+ * Cheap domain derivation. Priority: company.website -> job URLs registered
+ * in the last discovery -> ATS slug fallback (least reliable).
+ */
+export function deriveDomain(company) {
+  if (company.website) {
+    try {
+      const u = new URL(company.website.startsWith('http') ? company.website : `https://${company.website}`);
+      return u.hostname.replace(/^www\./, '');
+    } catch { /* fall through */ }
+  }
+  // Try to derive from a job URL for this company.
+  const row = getDb().prepare(`
+    SELECT url FROM job WHERE company_id = ? AND url IS NOT NULL LIMIT 1
+  `).get(company.id);
+  if (row?.url) {
+    try {
+      const u = new URL(row.url);
+      // ATS-hosted URLs (boards.greenhouse.io/acme) are not the company's real
+      // domain. Skip those.
+      if (/greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com/.test(u.hostname)) return null;
+      return u.hostname.replace(/^www\./, '');
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+function mapVerification(status) {
+  if (!status) return null;
+  const map = { deliverable: 'verified', valid: 'verified', risky: 'risky', invalid: 'invalid', undeliverable: 'invalid' };
+  return map[status] || null;
 }

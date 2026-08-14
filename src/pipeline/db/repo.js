@@ -189,6 +189,51 @@ export function refreshCompanyScore(companyId) {
   return s;
 }
 
+/* ── contact ────────────────────────────────────────────────── */
+
+/**
+ * Insert a contact (or return the existing one). Enforces unique (company_id, email).
+ * emailStatus in { verified | risky | invalid }.
+ * roleType in { founder | eng_leader | engineer | recruiter }.
+ */
+export function upsertContact({
+  companyId, fullName, title, roleType, email, emailStatus, source, raw = null,
+}) {
+  const db = getDb();
+  const emailLc = String(email).toLowerCase().trim();
+  const existing = db.prepare(
+    'SELECT id FROM contact WHERE company_id = ? AND email = ?'
+  ).get(companyId, emailLc);
+  if (existing) return { id: existing.id, created: false };
+
+  const result = db.prepare(`
+    INSERT INTO contact (company_id, full_name, title, role_type, email, email_status, source, raw)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    companyId, fullName, title, roleType, emailLc, emailStatus, source,
+    raw ? JSON.stringify(raw) : null
+  );
+  recordEvent({
+    entity: 'contact',
+    entityId: result.lastInsertRowid,
+    event: 'created',
+    detail: { companyId, roleType, emailStatus, source },
+  });
+  return { id: result.lastInsertRowid, created: true };
+}
+
+export function contactsByCompany(companyId) {
+  return getDb().prepare(
+    'SELECT * FROM contact WHERE company_id = ? ORDER BY id ASC'
+  ).all(companyId);
+}
+
+export function contactCountForCompany(companyId) {
+  return getDb().prepare(
+    'SELECT COUNT(*) AS n FROM contact WHERE company_id = ?'
+  ).get(companyId).n;
+}
+
 /* ── suppression ────────────────────────────────────────────── */
 
 export function isSuppressed(email) {
