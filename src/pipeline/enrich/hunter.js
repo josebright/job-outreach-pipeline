@@ -67,6 +67,16 @@ export async function emailFinder({ domain, firstName, lastName }) {
 
 /**
  * Verify an email. Returns one of 'verified' | 'risky' | 'invalid'.
+ *
+ * Hunter statuses we can see:
+ *   deliverable    -> verified (send freely)
+ *   undeliverable  -> invalid  (never send; suppress)
+ *   disposable     -> invalid  (throwaway mailbox)
+ *   risky          -> risky    (accept-all catch-all, low-confidence)
+ *   accept_all     -> risky    (server accepts everything, cannot verify per-user)
+ *   webmail        -> risky    (Gmail/Yahoo personal; usually still delivers)
+ *   unknown        -> risky    (Hunter could not verify; do not throw away)
+ *   anything else  -> risky    (safer than dropping; downstream still gated)
  */
 export async function emailVerifier({ email }) {
   ensureKey();
@@ -74,12 +84,25 @@ export async function emailVerifier({ email }) {
   const res = await limit(() => http.get(`https://${HOST}/v2/email-verifier`, { params, validateStatus: s => s < 500 }));
   if (res.status !== 200) return { status: 'invalid', raw: null };
   const d = res.data?.data;
-  const map = { deliverable: 'verified', risky: 'risky', undeliverable: 'invalid', unknown: 'risky' };
+  const status = mapHunterStatus(d?.status);
   return {
-    status: map[d?.status] || 'invalid',
+    status,
     score: d?.score ?? null,
     raw: d,
   };
+}
+
+/**
+ * Same mapping used for the inline verification field returned by
+ * domain-search (so the caller does not have to re-implement it).
+ */
+export function mapHunterStatus(status) {
+  if (!status) return 'risky';
+  const s = String(status).toLowerCase();
+  if (s === 'deliverable' || s === 'valid') return 'verified';
+  if (s === 'undeliverable' || s === 'disposable') return 'invalid';
+  // Everything else: risky. Never drop silently.
+  return 'risky';
 }
 
 function describe(res) {

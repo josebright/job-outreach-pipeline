@@ -9,7 +9,7 @@ import {
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { logger } from '../util/logger.js';
-import { domainSearch, emailVerifier as hunterVerifier } from './hunter.js';
+import { domainSearch, emailVerifier as hunterVerifier, mapHunterStatus } from './hunter.js';
 
 // Alias so both usages in this file (Hunter primary + posting-scrape verify) read cleanly.
 const emailVerifier = hunterVerifier;
@@ -79,11 +79,16 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
 
       // Verify + persist up to 3 contacts.
       for (const { emailData, roleType } of uniqueEmails.values()) {
-        // Prefer Hunter's inline verification field, fall back to explicit verifier.
-        let statusLabel = mapVerification(emailData.verification?.status);
+        // Prefer Hunter's inline verification field. Its status maps directly
+        // via mapHunterStatus and never returns null (unknown -> 'risky').
+        // Only fall back to a paid verifier call if inline verification is
+        // entirely absent from the domain-search payload.
+        let statusLabel;
         let rawVer = emailData.verification || null;
 
-        if (!statusLabel) {
+        if (emailData.verification?.status) {
+          statusLabel = mapHunterStatus(emailData.verification.status);
+        } else {
           charge(PROVIDER, 1, budget);
           const v = await emailVerifier({ email: emailData.value });
           statusLabel = v.status;
@@ -195,8 +200,3 @@ export function deriveDomain(company) {
   return null;
 }
 
-function mapVerification(status) {
-  if (!status) return null;
-  const map = { deliverable: 'verified', valid: 'verified', risky: 'risky', invalid: 'invalid', undeliverable: 'invalid' };
-  return map[status] || null;
-}
