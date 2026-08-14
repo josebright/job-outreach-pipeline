@@ -1,24 +1,21 @@
-# Job Finder
+# Job Outreach Pipeline
 
-Two products in one repo:
+A seven-module pipeline that discovers companies actively hiring remote engineers, qualifies them, enriches with decision-maker contacts, drafts personalized outreach, and sends after human approval. Follows [PRD-remote-job-outreach-system.md](PRD-remote-job-outreach-system.md).
 
-- **v3 outreach pipeline** (`src/pipeline/*`): the current active build. A seven-module system that discovers companies actively hiring remote engineers, qualifies them, enriches with decision-maker contacts, drafts personalized outreach, and sends after human approval. Follows [PRD-remote-job-outreach-system.md](PRD-remote-job-outreach-system.md).
-- **v2 auto-apply** (`src/index.js` and siblings): the previous version. Finds jobs across ATS aggregators, generates tailored resumes and cover letters, and can auto-send applications. **Deprecated but still runnable** via `npm run v2:search`. Do not extend it. New work happens in `src/pipeline/`.
-
-## v3 pipeline: quick start
+## Quick start
 
 ```bash
 # 1. Install
 npm install
 
 # 2. Configure
-cp .env.example .env         # fill in keys as you unlock them
-cp config.example.yaml config.yaml   # already done for you if this is a fresh clone
+cp .env.example .env                 # fill in the keys listed in .env.example
+cp config.example.yaml config.yaml   # already committed for you if this is a fresh clone
 
 # 3. Create the SQLite DB and run migrations
 npm run pipeline:init
 
-# 4. Run tests to verify the wiring
+# 4. Run tests to verify wiring
 npm test
 
 # 5. Individual modules (each command is idempotent)
@@ -34,7 +31,7 @@ npm run pipeline:report       # Module 7: funnel report
 npm run pipeline:daily
 ```
 
-## v3 pipeline: current status (Weeks 1-2 complete)
+## Current status (Weeks 1-2 complete)
 
 **Week 1 foundation:**
 
@@ -44,13 +41,13 @@ npm run pipeline:daily
 - Repo layer for company, job, contact, draft, message, suppression, send counters, dead slugs
 - HTTP client with retry/backoff and per-host concurrency limits
 - Structured logging (pino)
-- CLI skeleton with all eight subcommands
+- CLI with all eight subcommands
 - Send guards: cannot send unapproved drafts, cannot send to suppressed addresses, cannot exceed daily cap
 
 **Week 2 discovery + ingest:**
 
 - All four ATS clients real: Greenhouse, Lever, Ashby, Workable (each with `probe` + `fetchJobs`)
-- Shared classifiers for workplace type, remote scope, currency, and slug candidates
+- Shared classifiers for workplace type, remote scope, currency, slug candidates
 - Aggregator feeds: Remotive + RemoteOK, with dedup and hint extraction from URLs
 - Slug resolver: turns aggregator company names into (ats, slug) pairs by probing candidate variants
 - Discover module wired end-to-end: seed CSV -> SERP dorks -> aggregators
@@ -66,47 +63,31 @@ Not yet implemented (per PRD phase plan):
 ## Directory layout
 
 ```text
-src/
-├── pipeline/                      # v3 outreach system
-│   ├── cli.js                     # single entry point (yargs subcommands)
-│   ├── db/                        # SQLite: connection, migrate, repo, event log
-│   ├── config/                    # loader + Zod schema
-│   ├── util/                      # logger, http
-│   ├── discover/                  # Module 1
-│   │   ├── seed.js                # CSV loader
-│   │   ├── serp.js                # Serper.dev dork discovery
-│   │   ├── resolve-slug.js        # company name -> (ats, slug) via probing
-│   │   └── aggregators/           # remotive.js, remoteok.js
-│   ├── ingest/                    # Module 2
-│   │   └── ats/                   # classify.js + greenhouse | lever | ashby | workable
-│   ├── qualify/                   # Module 3 (stub)
-│   ├── enrich/                    # Module 4 (stub)
-│   ├── draft/                     # Module 5 (stub + hook verifier)
-│   ├── send/                      # Module 6 (guards live, transport stub)
-│   └── report/                    # Module 7
-├── ai-matcher.js                  # SHARED with v2
-├── utils.js                       # SHARED
-├── config.js                      # v2 env config
-└── (v2 files: index.js, job-aggregator.js, email-sender.js, ...)
+src/pipeline/
+├── cli.js                          # single entry point (yargs subcommands)
+├── db/                             # SQLite: connection, migrate, repo, event log
+├── config/                         # loader + Zod schema
+├── util/                           # logger, http
+├── discover/                       # Module 1
+│   ├── seed.js                     # CSV loader
+│   ├── serp.js                     # Serper.dev dork discovery
+│   ├── resolve-slug.js             # company name -> (ats, slug) via probing
+│   └── aggregators/                # remotive.js, remoteok.js
+├── ingest/                         # Module 2
+│   └── ats/                        # classify.js + greenhouse | lever | ashby | workable
+├── qualify/                        # Module 3 (stub)
+├── enrich/                         # Module 4 (stub)
+├── draft/                          # Module 5 (stub + hook verifier)
+├── send/                           # Module 6 (guards live, transport stub)
+└── report/                         # Module 7
 
 migrations/001_initial_schema.sql   # applied by src/pipeline/db/migrate.js
 prompts/outreach_v1.txt             # LLM prompt for Module 5
-tests/                              # vitest suite
+tests/                              # vitest suite + fixtures
 config.example.yaml
 .env.example
+railway.json                        # Railway cron deployment
 ```
-
-## v2 (legacy) reference
-
-Kept for reference and occasional use. Commands are namespaced under `v2:`:
-
-```bash
-npm run v2:setup        # parse resume.pdf into data/profile.json
-npm run v2:search       # find jobs, generate tailored resumes/cover letters
-```
-
-Do not send emails from v2 while v3 is being built. v2's sender does not
-respect the v3 suppression list, cap logic, or event log.
 
 ## Deploying to Railway
 
@@ -114,22 +95,18 @@ The pipeline is designed to run as a **Railway cron job**, not a long-running se
 
 ### One-time setup
 
-1. Create a GitHub repo and push this code (see the initial commit for the file list).
+1. Create a GitHub repo and push this code.
 2. In Railway → your workspace → **New Project** → **Deploy from GitHub repo** → pick the repo.
 3. **Settings → Volumes → Add Volume**: mount path `/app/data`, size `1 GB`.
 4. **Variables**: paste every key from your local `.env` one at a time. Do not upload `.env` itself.
 5. Add these two extra variables:
    - `PIPELINE_DB_PATH=/app/data/pipeline.db`
    - `NODE_ENV=production`
-6. Railway reads `railway.json` for the cron schedule (default: `0 7 * * *`, meaning 07:00 UTC = 08:00 WAT). Adjust in the file or in **Settings → Cron Schedule**.
-
-### Why cron and not always-on
-
-`pipeline:daily` runs the whole discover → ingest → qualify → enrich → draft → report chain in under a few minutes on a normal day. Keeping a container idle for the other 23 hours would burn RAM budget for no benefit. Cron matches the workload.
+6. Railway reads `railway.json` for the cron schedule (default: `0 7 * * *`, meaning 07:00 UTC = 08:00 WAT).
 
 ### Verifying a run
 
-Railway → Deployments → click the latest run → **View Logs**. You will see structured pino output ending with the funnel report line. If it fails, the logs show which module threw.
+Railway → **Deployments** → click the latest run → **View Logs**. You will see structured pino output ending with the funnel report line.
 
 ### Cost estimate
 
@@ -137,6 +114,4 @@ Hobby plan is $5/month flat. A daily cron run of 2 to 5 minutes uses a small fra
 
 ## Requirements
 
-- Node.js 20+
-- `pdftotext` (from poppler) for v2 resume parsing only: `brew install poppler`
-- Chromium (auto-installed by Puppeteer) for v2 PDF generation only. **Skipped during Railway builds** via `.npmrc`.
+- Node.js 22 LTS or newer
