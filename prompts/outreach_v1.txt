@@ -70,8 +70,6 @@ Signature (each on its own line):
   {owner_profile.links.linkedin}
   {owner_profile.links.website}
   {owner_profile.links.github}  (only if present and non-empty)
-  ""
-  "If this is not relevant, tell me and I will not write again."
 
 
 WRITING STYLE (STRICT)
@@ -121,3 +119,4 @@ A draft is not acceptable if any of the following are true:
 - The signature omits the required links or the opt-out line.
 - The word count is under 60 or over 100.
 - The subject line is over 60 characters or does not follow the "{role} application — {name}" format.
+- The signature includes an opt-out or removal line. This is a job application, not marketing outreach; do not sound like you are asking for permission to write again.

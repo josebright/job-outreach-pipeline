@@ -16,6 +16,7 @@
     "pipeline:send": "node src/pipeline/cli.js send",
     "pipeline:report": "node src/pipeline/cli.js report",
     "pipeline:daily": "node src/pipeline/cli.js discover && node src/pipeline/cli.js ingest && node src/pipeline/cli.js qualify && node src/pipeline/cli.js enrich && node src/pipeline/cli.js draft && node src/pipeline/cli.js report",
+    "pipeline:test-send-once": "node scripts/test-send-once.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
