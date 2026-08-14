@@ -4,8 +4,8 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "npm run pipeline:test-send-once",
+    "startCommand": "npm run pipeline:daily",
     "restartPolicyType": "NEVER",
-    "cronSchedule": "*/5 * * * *"
+    "cronSchedule": "0 7 * * *"
   }
 }
