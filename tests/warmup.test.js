@@ -15,37 +15,37 @@ describe('effectiveCap warm-up ramp', () => {
     expect(r.isRamping).toBe(false);
   });
 
-  it('day 1 of ramp caps at 2', () => {
+  it('day 1 of ramp caps at 5 (mailbox with some prior history)', () => {
     const r = effectiveCap({
       kind: 'initial', config: cfg({ start: '2026-08-14' }),
       now: new Date('2026-08-14T09:00:00Z'),
     });
-    expect(r.cap).toBe(2);
+    expect(r.cap).toBe(5);
     expect(r.warmupDay).toBe(1);
     expect(r.isRamping).toBe(true);
   });
 
-  it('day 3 caps at 3', () => {
+  it('day 4 caps at 7', () => {
     const r = effectiveCap({
       kind: 'initial', config: cfg({ start: '2026-08-14' }),
-      now: new Date('2026-08-16T09:00:00Z'),
+      now: new Date('2026-08-17T09:00:00Z'),
     });
-    expect(r.cap).toBe(3);
-    expect(r.warmupDay).toBe(3);
+    expect(r.cap).toBe(7);
+    expect(r.warmupDay).toBe(4);
   });
 
-  it('day 10 caps at 9', () => {
+  it('day 8 caps at 13', () => {
     const r = effectiveCap({
       kind: 'initial', config: cfg({ start: '2026-08-14' }),
-      now: new Date('2026-08-23T09:00:00Z'),
+      now: new Date('2026-08-21T09:00:00Z'),
     });
-    expect(r.cap).toBe(9);
+    expect(r.cap).toBe(13);
   });
 
-  it('day 14+ returns full cap', () => {
+  it('day 11+ returns full cap', () => {
     const r = effectiveCap({
       kind: 'initial', config: cfg({ start: '2026-08-14' }),
-      now: new Date('2026-08-28T09:00:00Z'),
+      now: new Date('2026-08-24T09:00:00Z'),
     });
     expect(r.cap).toBe(15);
     expect(r.isRamping).toBe(false);
@@ -58,7 +58,7 @@ describe('effectiveCap warm-up ramp', () => {
       kind: 'followup', config: c,
       now: new Date('2026-08-14T09:00:00Z'),
     });
-    expect(r.cap).toBe(2); // still ramping, capped by ramp
+    expect(r.cap).toBe(5); // still ramping, capped by ramp
   });
 
   it('ignores invalid start date and returns full cap', () => {

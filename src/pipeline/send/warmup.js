@@ -3,26 +3,24 @@
 // volume, jumping straight to 15/day trips volume-anomaly detectors even on
 // a mature domain. Ramp gradually over ~14 days.
 //
-// Ramp schedule per PRD-style deliverability practice:
-//   Days  1- 2:  2/day
-//   Days  3- 4:  3/day
-//   Days  5- 6:  5/day
-//   Days  7- 8:  7/day
-//   Days  9-10:  9/day
-//   Days 11-13: 12/day
-//   Day  14+:   full cap
+// Ramp schedule for a mailbox that has some send history but is not
+// regular at outreach volume. Start at 5, reach full cap by day 11.
+//
+//   Days  1- 3:  5/day
+//   Days  4- 5:  7/day
+//   Days  6- 7: 10/day
+//   Days  8-10: 13/day
+//   Day  11+:   full cap
 //
 // Configured by send.warmup_start_date (ISO date). If unset, no ramp is
 // applied (mailbox is treated as fully warmed).
 
 const RAMP = [
-  { untilDay:  2, cap:  2 },
-  { untilDay:  4, cap:  3 },
-  { untilDay:  6, cap:  5 },
-  { untilDay:  8, cap:  7 },
-  { untilDay: 10, cap:  9 },
-  { untilDay: 13, cap: 12 },
-  // day 14+ → full cap (caller's config value)
+  { untilDay:  3, cap:  5 },
+  { untilDay:  5, cap:  7 },
+  { untilDay:  7, cap: 10 },
+  { untilDay: 10, cap: 13 },
+  // day 11+ → full cap (caller's config value)
 ];
 
 /**
