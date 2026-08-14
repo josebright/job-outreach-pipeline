@@ -43,7 +43,13 @@ export async function runDiscover({ config }) {
     const rows = loadSeedCsv(seedPath);
     for (const row of rows) {
       const { created } = upsertCompany({
-        name: row.name || row.slug, ats: row.ats, slug: row.slug, source: 'seed',
+        name: row.name || row.slug,
+        ats: row.ats,
+        slug: row.slug,
+        source: 'seed',
+        hqCountry: row.hqCountry,
+        sizeBand: row.sizeBand,
+        nigeriaPresence: row.nigeriaPresence,
       });
       if (created) stats.seedInserted++;
       else stats.duplicates++;

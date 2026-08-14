@@ -39,10 +39,22 @@ const commands = {
     logger.info(stats, 'ingest complete');
   },
 
-  async qualify() {
+  async qualify(argv) {
     const config = loadConfig();
     getDb();
     runMigrations();
+    if (argv.eval) {
+      const { evaluateAgainstLabels } = await import('./qualify/evaluate.js');
+      const result = evaluateAgainstLabels({ csvPath: argv.eval, config });
+      const passedPrecision = result.precision >= 0.90;
+      const passedRecall    = result.recall    >= 0.80;
+      logger.info({
+        ...result,
+        misses: result.misses.slice(0, 20),
+        acceptancePassed: passedPrecision && passedRecall,
+      }, `eval: precision=${result.precision.toFixed(3)} recall=${result.recall.toFixed(3)} f1=${result.f1.toFixed(3)}`);
+      process.exit(passedPrecision && passedRecall ? 0 : 1);
+    }
     const stats = await runQualify({ config });
     logger.info(stats, 'qualify complete');
   },
@@ -84,7 +96,12 @@ const argv = yargs(hideBin(process.argv))
   .command('init',     'Create SQLite DB and run pending migrations')
   .command('discover', 'Module 1: find company slugs (seed + SERP dorks + aggregators)')
   .command('ingest',   'Module 2: fetch jobs from each ATS')
-  .command('qualify',  'Module 3: apply hard filters + score')
+  .command('qualify',  'Module 3: apply hard filters + score', (y) => {
+    y.option('eval', {
+      type: 'string',
+      describe: 'Path to labeled CSV (job_id,expected) for precision/recall harness. Exits non-zero if targets missed.',
+    });
+  })
   .command('enrich',   'Module 4: find contacts + verify emails')
   .command('draft',    'Module 5: generate personalized drafts')
   .command('send',     'Module 6: send approved drafts (with all safety gates)')
@@ -103,7 +120,7 @@ async function main() {
     process.exit(1);
   }
   try {
-    await fn();
+    await fn(argv);
   } catch (err) {
     logger.error({ err: err.message, stack: err.stack }, 'command failed');
     process.exit(1);

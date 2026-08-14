@@ -6,24 +6,33 @@ import { recordEvent } from './event-log.js';
 
 /* ── company ────────────────────────────────────────────────── */
 
-export function upsertCompany({ name, ats, slug, source, hqCountry = null, sizeBand = null, website = null }) {
+export function upsertCompany({
+  name, ats, slug, source,
+  hqCountry = null, sizeBand = null, website = null, nigeriaPresence = false,
+}) {
   const db = getDb();
   const existing = db.prepare(
     'SELECT id, status FROM company WHERE ats = ? AND slug = ?'
   ).get(ats, slug);
 
   if (existing) {
+    // Backfill non-null fields when re-upserting from a richer source (e.g., seed).
     db.prepare(`
-      UPDATE company SET updated_at = datetime('now')
+      UPDATE company SET
+        hq_country       = COALESCE(?, hq_country),
+        size_band        = COALESCE(?, size_band),
+        website          = COALESCE(?, website),
+        nigeria_presence = CASE WHEN ? = 1 THEN 1 ELSE nigeria_presence END,
+        updated_at       = datetime('now')
       WHERE id = ?
-    `).run(existing.id);
+    `).run(hqCountry, sizeBand, website, nigeriaPresence ? 1 : 0, existing.id);
     return { id: existing.id, created: false };
   }
 
   const result = db.prepare(`
-    INSERT INTO company (name, ats, slug, source, hq_country, size_band, website)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(name, ats, slug, source, hqCountry, sizeBand, website);
+    INSERT INTO company (name, ats, slug, source, hq_country, size_band, website, nigeria_presence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, ats, slug, source, hqCountry, sizeBand, website, nigeriaPresence ? 1 : 0);
 
   recordEvent({
     entity: 'company',
@@ -110,12 +119,74 @@ export function jobsByCompany(companyId) {
   return getDb().prepare('SELECT * FROM job WHERE company_id = ?').all(companyId);
 }
 
+export function jobsByStatus(status, { limit = null } = {}) {
+  const sql = limit
+    ? 'SELECT * FROM job WHERE status = ? ORDER BY id ASC LIMIT ?'
+    : 'SELECT * FROM job WHERE status = ? ORDER BY id ASC';
+  const params = limit ? [status, limit] : [status];
+  return getDb().prepare(sql).all(...params);
+}
+
+export function jobById(id) {
+  return getDb().prepare('SELECT * FROM job WHERE id = ?').get(id);
+}
+
 export function countJobs() {
   return getDb().prepare('SELECT COUNT(*) AS n FROM job').get().n;
 }
 
 export function countCompanies() {
   return getDb().prepare('SELECT COUNT(*) AS n FROM company').get().n;
+}
+
+/**
+ * Apply the qualify decision to a job.
+ * status: 'qualified' | 'disqualified' | 'needs_review'
+ * disqualifyReason is stored regardless of status (useful for needs_review too).
+ */
+export function setJobQualifyResult(jobId, { status, score, disqualifyReason = null }) {
+  const db = getDb();
+  db.prepare(`
+    UPDATE job SET status = ?, score = ?, disqualify_reason = ? WHERE id = ?
+  `).run(status, score, disqualifyReason, jobId);
+  recordEvent({
+    entity: 'job',
+    entityId: jobId,
+    event: status,
+    detail: { score, disqualifyReason },
+  });
+}
+
+/**
+ * Cheap check for Q5 (not previously contacted).
+ * Returns true if any draft for a contact at this company was 'sent' within N days.
+ */
+export function wasCompanyContactedRecently(companyId, days = 90) {
+  const row = getDb().prepare(`
+    SELECT 1
+    FROM draft d
+    JOIN contact c ON c.id = d.contact_id
+    WHERE c.company_id = ?
+      AND d.status = 'sent'
+      AND d.sent_at IS NOT NULL
+      AND d.sent_at > datetime('now', ?)
+    LIMIT 1
+  `).get(companyId, `-${days} days`);
+  return Boolean(row);
+}
+
+/**
+ * Update the company's cached score to reflect the highest-scoring
+ * qualified job. Used by enrichment to prioritize companies.
+ */
+export function refreshCompanyScore(companyId) {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT MAX(score) AS s FROM job WHERE company_id = ? AND status = 'qualified'
+  `).get(companyId);
+  const s = row?.s ?? 0;
+  db.prepare('UPDATE company SET score = ? WHERE id = ?').run(s, companyId);
+  return s;
 }
 
 /* ── suppression ────────────────────────────────────────────── */

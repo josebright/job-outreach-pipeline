@@ -1,8 +1,9 @@
 // discover/seed.js
-// Manual seed loader. CSV format: name,ats,slug,notes
-// One row per known company. Highest-quality input source.
+// Manual seed loader. CSV format (required cols first):
+//   name,ats,slug[,hq_country,size_band,nigeria_presence,notes]
+// Only name, ats, slug are required. Extra columns are optional.
+// nigeria_presence: 1|true|yes for present, 0|false|no or blank for absent.
 import fs from 'fs';
-import path from 'path';
 
 export function loadSeedCsv(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return [];
@@ -11,25 +12,42 @@ export function loadSeedCsv(filePath) {
 
   const [headerLine, ...rows] = raw.split(/\r?\n/);
   const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
-  const idxName = headers.indexOf('name');
-  const idxAts = headers.indexOf('ats');
-  const idxSlug = headers.indexOf('slug');
-  if (idxName < 0 || idxAts < 0 || idxSlug < 0) {
-    throw new Error(`Seed CSV ${filePath} must have columns: name, ats, slug`);
+
+  const req = ['name', 'ats', 'slug'];
+  for (const r of req) {
+    if (!headers.includes(r)) {
+      throw new Error(`Seed CSV ${filePath} must have columns: name, ats, slug`);
+    }
   }
+
+  const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
 
   return rows
     .map(line => splitCsvLine(line))
-    .filter(cols => cols.length && cols[idxSlug])
+    .filter(cols => cols.length && cols[idx.slug])
     .map(cols => ({
-      name: cols[idxName]?.trim(),
-      ats: cols[idxAts]?.trim().toLowerCase(),
-      slug: cols[idxSlug]?.trim().toLowerCase(),
+      name: cols[idx.name]?.trim(),
+      ats: cols[idx.ats]?.trim().toLowerCase(),
+      slug: cols[idx.slug]?.trim().toLowerCase(),
+      hqCountry: idx.hq_country != null ? nullable(cols[idx.hq_country]) : null,
+      sizeBand: idx.size_band != null ? nullable(cols[idx.size_band]) : null,
+      nigeriaPresence: idx.nigeria_presence != null ? truthy(cols[idx.nigeria_presence]) : false,
     }));
 }
 
-// Minimal CSV split: handles simple quoted commas. Good enough for a
-// hand-maintained seed list.
+function nullable(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
+
+function truthy(v) {
+  if (v == null) return false;
+  const s = String(v).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'y';
+}
+
+// Minimal CSV split: handles simple quoted commas.
 function splitCsvLine(line) {
   const out = [];
   let cur = '';
