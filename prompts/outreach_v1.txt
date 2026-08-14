@@ -71,9 +71,13 @@ Never: "would you be open to a short call", "let's schedule 15 minutes", "I'd lo
 
 Signature (each on its own line):
   {owner_profile.name}
-  {owner_profile.links.linkedin}
   {owner_profile.links.website}
-  {owner_profile.links.github}  (only if present and non-empty)
+  {owner_profile.links.linkedin}
+
+Do not include GitHub, GitLab, Credly, or any other link in the signature.
+The website already links out to those from the sender's portfolio. Keeping
+the signature to three lines makes the email scannable and does not push
+the ask below the fold.
 
 
 WRITING STYLE (STRICT)
