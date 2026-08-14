@@ -47,6 +47,7 @@ export async function runDiscover({ config }) {
         ats: row.ats,
         slug: row.slug,
         source: 'seed',
+        website: row.website,
         hqCountry: row.hqCountry,
         sizeBand: row.sizeBand,
         nigeriaPresence: row.nigeriaPresence,

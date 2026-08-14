@@ -1,8 +1,9 @@
 // discover/seed.js
 // Manual seed loader. CSV format (required cols first):
-//   name,ats,slug[,hq_country,size_band,nigeria_presence,notes]
+//   name,ats,slug[,website,hq_country,size_band,nigeria_presence,notes]
 // Only name, ats, slug are required. Extra columns are optional.
 // nigeria_presence: 1|true|yes for present, 0|false|no or blank for absent.
+// website: bare domain or full URL; used by Module 4 to run Hunter searches.
 import fs from 'fs';
 
 export function loadSeedCsv(filePath) {
@@ -29,6 +30,7 @@ export function loadSeedCsv(filePath) {
       name: cols[idx.name]?.trim(),
       ats: cols[idx.ats]?.trim().toLowerCase(),
       slug: cols[idx.slug]?.trim().toLowerCase(),
+      website: idx.website != null ? nullable(cols[idx.website]) : null,
       hqCountry: idx.hq_country != null ? nullable(cols[idx.hq_country]) : null,
       sizeBand: idx.size_band != null ? nullable(cols[idx.size_band]) : null,
       nigeriaPresence: idx.nigeria_presence != null ? truthy(cols[idx.nigeria_presence]) : false,
