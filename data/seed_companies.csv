@@ -1,0 +1,31 @@
+name,ats,slug,hq_country,size_band,nigeria_presence,notes
+Deel,greenhouse,deel,US,1000+,1,Global EOR; hires engineers worldwide including Africa
+Remote,greenhouse,remotecom,US,501-1000,1,Global EOR; explicit worldwide-remote policy
+Andela,greenhouse,andela,US,501-1000,1,Founded serving African engineers; global remote
+Turing,greenhouse,turing,US,501-1000,1,Global remote developer network with African hires
+Chainlink Labs,greenhouse,chainlinklabs,US,201-500,0,Distributed globally; strong remote culture
+Sourcegraph,greenhouse,sourcegraph,US,201-500,0,All-remote engineering org
+Vercel,greenhouse,vercel,US,201-500,0,Remote-first; Next.js maker
+Cloudflare,greenhouse,cloudflare,US,1000+,0,Many remote engineering roles worldwide
+HashiCorp,greenhouse,hashicorp91,US,1000+,0,All-remote by default
+MongoDB,greenhouse,mongodb,US,1000+,0,Global remote engineering roles
+Elastic,greenhouse,elastic,US,1000+,0,Distributed; source-available search
+Grafana Labs,greenhouse,grafanalabs,US,501-1000,0,All-remote observability
+Xapo Bank,greenhouse,xapo,GI,201-500,0,Global remote fintech
+Toptal,greenhouse,toptal,US,1000+,1,Freelance engineering network; global
+Automattic,greenhouse,automattic,US,1000+,1,All-remote WordPress; hires everywhere
+Zapier,greenhouse,zapier,US,501-1000,0,All-remote automation platform
+Doist,greenhouse,doist,PT,51-200,0,All-remote maker of Todoist
+Netlify,lever,netlify,US,201-500,0,Remote-first Jamstack platform
+Linear,ashby,linear,US,51-200,0,Product development tool; remote-friendly
+Ramp,ashby,ramp,US,501-1000,0,Fintech; remote roles
+Perplexity,ashby,perplexity,US,51-200,0,AI search; remote-friendly
+Anthropic,greenhouse,anthropic,US,501-1000,0,AI safety; remote roles for select regions
+Mercury,greenhouse,mercury,US,201-500,0,Fintech for startups; remote-first
+Prisma,greenhouse,prisma,DE,51-200,0,Berlin-based; remote-friendly
+Sanity,lever,sanity-io,NO,51-200,0,Norwegian CMS; remote across EU
+Contentful,greenhouse,contentful,DE,501-1000,0,Berlin-based headless CMS; remote-friendly
+Storyblok,ashby,storyblok,AT,51-200,0,Vienna-based CMS; remote in EU
+Toggl,workable,toggl,EE,51-200,0,All-remote productivity tools
+DuckDuckGo,greenhouse,duckduckgo,US,201-500,0,Privacy search; global remote culture
+Doximity,greenhouse,doximity,US,501-1000,0,Healthtech; remote engineering

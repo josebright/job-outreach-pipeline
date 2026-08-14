@@ -3,11 +3,13 @@
 .env.local
 .env.production
 
-# Local personal data (never commit)
+# Local personal data (v2 legacy only)
 data/profile.json
-data/profile.yaml
-data/seed_companies.csv
 resume.pdf
+
+# NOTE: data/profile.yaml and data/seed_companies.csv are committed on
+# purpose so the Railway container has them at build time. This repo is
+# private; if it ever goes public, sanitize both files first.
 
 # Runtime state
 data/pipeline.db

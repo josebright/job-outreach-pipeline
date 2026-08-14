@@ -6,8 +6,8 @@ data/pipeline.db
 data/pipeline.db-wal
 data/pipeline.db-shm
 data/profile.json
-data/profile.yaml
-data/seed_companies.csv
+# profile.yaml + seed_companies.csv are intentionally shipped to Railway
+# so the container has them at boot time.
 node_modules
 npm-debug.log*
 output

@@ -1,0 +1,73 @@
+# data/profile.yaml
+# The profile pack the LLM reads when drafting each outreach email.
+# Sourced from resume.pdf; edit any line that no longer reflects reality.
+#
+# Rules of thumb:
+# - Only facts that are true today. The prompt is instructed not to invent.
+# - Achievements are quantified. Numbers and outcomes over adjectives.
+
+name: Uchenna Bright Ugwumadu
+title: Cloud Software Engineer and Full-Stack Developer
+location: Abuja, Nigeria
+timezone: WAT (UTC+1)
+
+# Timezone facts the LLM can pick from for the friction-removal sentence.
+timezone_notes:
+  - full overlap with EU working hours
+  - 4 to 6 hours of overlap with US East Coast mornings
+
+# Contractor readiness. Track A uses this. Track B replaces it with relocation notes.
+contractor:
+  ready: true
+  platforms: [Deel, Remote.com, Oyster]
+  note: set up as an independent contractor, invoice directly or via any EOR
+
+# Public links. These render in every signature.
+links:
+  linkedin: https://www.linkedin.com/in/josebright
+  website:  https://brightugwumadu.vercel.app
+  github:   https://github.com/josebright
+  gitlab:   https://gitlab.com/josebright
+  credly:   https://www.credly.com/users/uchenna-ugwumadu/badges
+
+# Contact email that appears in the signature and Reply-To.
+# Sending mailbox is bright@capacitydey.org (Gmail Workspace).
+reply_email: uchennaugwumadu8@gmail.com
+
+# Stack. Used by the qualify Q1 filter and by the LLM when matching
+# achievements to job posts.
+stack:
+  languages: [JavaScript, TypeScript, PHP, Python, Dart, Bash]
+  frameworks: [Node.js, NestJS, Laravel, React, Next.js, AngularJS, Redux, Flutter, React Native]
+  apis: [REST, GraphQL, Apollo GraphQL, Prisma, JWT, WebSockets]
+  data: [PostgreSQL, MySQL, Redis]
+  cloud: [AWS (Lambda, EC2, S3, CloudFormation), Azure (Web Apps, DevOps, Storage, RBAC), Firebase, DigitalOcean]
+  devops: [Docker, Kubernetes, GitHub Actions, Azure DevOps, GitLab CI/CD, CircleCI]
+  security: [IAM, RBAC, KMS, Secrets Management, OWASP, Snyk]
+  payments: [Stripe, PayPal, Flutterwave, Paystack]
+  testing: [Jest, PHPUnit, Cypress, Postman, Swagger]
+  domains: [Fintech / Payments, Healthtech, E-commerce, AR SaaS, Scientific Collaboration, Cryptocurrency]
+
+# Achievements. Each entry is a candidate for the "one quantified achievement"
+# sentence in each draft. The LLM picks the one most relevant to the target role.
+# Keep entries short, concrete, and defensible.
+achievements:
+  - "Cut real-time messaging latency by 3x on SciVenia by tuning Redis caching and moving hot paths off Postgres."
+  - "Shipped GitLab CI/CD pipelines for SciVenia and Mubazar that lifted release cadence 40% and held 99.9% uptime across multi-region EC2."
+  - "Raised the cloud security posture of a client environment 60% by hardening IAM roles, S3 encryption, API Gateway policies, and CI/CD secret handling."
+  - "As sole engineer, rebuilt GT Merch as a multi-store WordPress operation across Nigeria and Russia, cutting hosting cost and adding cross-border payments and delivery."
+  - "Built CoinForBarter Scan-to-Pay, POS, and a merchant-facing PHP SDK end-to-end, delivering a complete multi-surface crypto payment stack that reached YC-warm interest."
+  - "Progressed Intern to Tech Lead at FirstFounders inside 12 months, owning deployments across 8+ production sites with incident-free launches."
+  - "At Tek Experts, drove Azure right-sizing and lifecycle changes that saved enterprise customers over 200 USD/month per account while diagnosing pipeline, RBAC, and container failures."
+
+# One-liner used when the LLM needs a compact intro.
+one_liner: >
+  Senior full-stack engineer with 5+ years across cloud, AI integration, and scalable systems.
+  Ships production code end-to-end across fintech, healthtech, AR SaaS, and scientific
+  collaboration platforms, with a bias for turning business logic into working automation.
+
+# Track B (relocation) fields. Only used when track: B is in play.
+relocation:
+  ready_to_relocate: true
+  visa_situation: currently in Nigeria; open to sponsored visa or relocation
+  target_countries: [Germany, Netherlands, Ireland, Canada, United Kingdom, United Arab Emirates]
