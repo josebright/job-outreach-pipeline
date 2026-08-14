@@ -94,7 +94,7 @@ discover:
 # ── Enrichment ─────────────────────────────────────────────────
 enrichment:
   providers: [hunter]         # add apollo when key is available
-  monthly_budget_usd: 40
+  monthly_budget: 2000        # Hunter Starter tier (2,000 credits/month)
   min_email_status_for_auto_send: verified
 
 # ── LLM ────────────────────────────────────────────────────────
@@ -116,3 +116,6 @@ send:
   send_window_local_start: "08:30"
   send_window_local_end: "11:00"
   bounce_rate_alarm_pct: 3
+  # Cold-mailbox warm-up. Starts today: ramps 2/day -> 15/day over 14 days.
+  # Remove or set to null once ramp is complete to skip the check.
+  warmup_start_date: "2026-08-14"

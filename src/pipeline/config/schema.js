@@ -48,11 +48,19 @@ const sendSchema = z.object({
   send_window_local_start: z.string().default('08:30'),
   send_window_local_end: z.string().default('11:00'),
   bounce_rate_alarm_pct: z.number().default(3),
+  // Cold-mailbox warm-up. If set to an ISO date (YYYY-MM-DD), the send loop
+  // caps daily volume on a 14-day ramp starting that date. Leave blank/null
+  // to disable when the mailbox is already warmed.
+  warmup_start_date: z.string().nullable().optional(),
 });
 
 const enrichmentSchema = z.object({
   providers: z.array(z.enum(['hunter', 'apollo', 'snov', 'proxycurl'])).min(1),
-  monthly_budget_usd: z.number().nonnegative().default(50),
+  // Monthly credit budget per provider (1 credit = 1 Hunter API call in most cases).
+  // Hunter free tier = 50, Starter = 2000. Was named monthly_budget_usd; kept
+  // that alias for backward compatibility.
+  monthly_budget: z.number().nonnegative().default(2000),
+  monthly_budget_usd: z.number().nonnegative().optional(),
   min_email_status_for_auto_send: z.enum(['verified', 'risky']).default('verified'),
 });
 

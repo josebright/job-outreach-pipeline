@@ -33,11 +33,8 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
     skippedNoDomain: 0,
   };
 
-  const budget = config.enrichment.monthly_budget_usd;
-  // Hunter Starter is $34/mo for 500 searches + 1000 verifications.
-  // We treat "units" here as generic "calls" and let the ledger budget be in USD.
-  // For a $40/mo budget we'll allow up to ~500 calls (>1 credit each on average).
-  // A more precise model is future work when we start actually paying.
+  // Prefer the new `monthly_budget` field; fall back to the legacy `monthly_budget_usd`.
+  const budget = config.enrichment.monthly_budget ?? config.enrichment.monthly_budget_usd ?? 0;
   const before = usage(PROVIDER, budget);
   logger.info({ ...before }, 'hunter budget status');
   if (before.remaining <= 0) {

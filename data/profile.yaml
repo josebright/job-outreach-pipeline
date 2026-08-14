@@ -61,6 +61,9 @@ achievements:
   - "At Tek Experts, drove Azure right-sizing and lifecycle changes that saved enterprise customers over 200 USD/month per account while diagnosing pipeline, RBAC, and container failures."
   - "Mentored 50+ developers and led a 10-person core team through CapacityDey Tech Club, moving early-career engineers to client-ready in 6-month cycles with SDLC, UX, and security-focused practice."
   - "Integrated four payment gateways in production (Stripe, PayPal, Flutterwave, Paystack) across fintech and crypto products, handling checkout, verification, and merchant SDKs end-to-end."
+  - "Built Zurva, a two-product commerce OS for African SMEs (Vault: offline-first mobile POS/inventory, and Pulse: WhatsApp chat-commerce bot) on TypeScript, NestJS, Next.js, Expo, Prisma, Postgres, Redis, and BullMQ, with Paystack and Stripe Connect payouts."
+  - "Shipped NineToVibes, an AI content pipeline that turns trending topics into brand-consistent YouTube shorts end-to-end (Ollama Llama 3.1 for scripts, ElevenLabs for voice, Google Veo for visuals, FFmpeg for assembly, YouTube Data API for publishing)."
+  - "Delivered Go Elite, a two-sided on-demand marketplace for bodyguard booking with real-time tracking (Socket.IO), Stripe payments, and an admin dashboard, across NestJS, Next.js, and Flutter."
 
 # One-liner used when the LLM needs a compact intro.
 one_liner: >

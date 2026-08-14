@@ -18,6 +18,7 @@ import { loadProfile } from '../draft/profile.js';
 import { sendMessage } from './gmail.js';
 import { draftsDueForFollowup, followupBody, threadedSubject } from './follow-up.js';
 import { pollReplies, isPaused } from './reply-detect.js';
+import { effectiveCap } from './warmup.js';
 
 export class SendBlockedError extends Error {
   constructor(reason, detail = {}) {
@@ -99,10 +100,14 @@ export async function runSend({ config } = {}) {
     return stats;
   }
 
-  const caps = {
-    initial: config.send.daily_cap_initial,
-    followup: config.send.daily_cap_followup,
-  };
+  // Apply warm-up ramp if configured.
+  const initialCap  = effectiveCap({ kind: 'initial',  config });
+  const followupCap = effectiveCap({ kind: 'followup', config });
+  if (initialCap.isRamping) {
+    logger.info({ warmupDay: initialCap.warmupDay, initialCap: initialCap.cap, followupCap: followupCap.cap },
+      'sending under warm-up ramp');
+  }
+  const caps = { initial: initialCap.cap, followup: followupCap.cap };
 
   // Load profile once for follow-up bodies.
   let profile = null;
