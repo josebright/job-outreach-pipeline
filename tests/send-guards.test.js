@@ -7,7 +7,9 @@ import path from 'path';
 import os from 'os';
 import { _resetForTests } from '../src/pipeline/db/connection.js';
 import { runMigrations } from '../src/pipeline/db/migrate.js';
-import { suppress } from '../src/pipeline/db/repo.js';
+import {
+  upsertCompany, upsertContact, createDraft, updateDraftStatus, suppress,
+} from '../src/pipeline/db/repo.js';
 import { sendApprovedDraft, SendBlockedError } from '../src/pipeline/send/index.js';
 
 function freshDb() {
@@ -15,46 +17,70 @@ function freshDb() {
   process.env.PIPELINE_DB_PATH = p;
   _resetForTests(p);
   runMigrations();
-  return p;
 }
 
-const fakeTransport = {
-  send: async () => ({ messageId: 'stub@example.com' }),
-};
+function seedApprovedDraft({ email = 'ok@example.com' } = {}) {
+  const c = upsertCompany({ name: 'Acme', ats: 'greenhouse', slug: 'acme', source: 'seed' });
+  const contact = upsertContact({
+    companyId: c.id, fullName: 'A', title: 'CTO', roleType: 'founder',
+    email, emailStatus: 'verified', source: 'hunter',
+  });
+  const draft = createDraft({
+    contactId: contact.id, subject: 's', body: 'b',
+    promptVersion: 'outreach_v1', hookVerified: true,
+  });
+  updateDraftStatus(draft.id, 'approved');
+  return { draftId: draft.id, contactId: contact.id, email };
+}
 
+const fakeTransport = { send: async () => ({ messageId: 'stub@example.com', threadId: 't-1' }) };
 const caps = { initial: 2, followup: 2 };
 
 describe('send guards', () => {
   beforeEach(() => freshDb());
 
   it('refuses to send a draft that is not approved', async () => {
-    const draft = { id: 1, status: 'pending_review', subject: 's', body: 'b' };
+    const c = upsertCompany({ name: 'X', ats: 'lever', slug: 'x', source: 'seed' });
+    const contact = upsertContact({
+      companyId: c.id, fullName: 'A', title: 'CTO', roleType: 'founder',
+      email: 'p@example.com', emailStatus: 'verified', source: 'hunter',
+    });
+    const d = createDraft({
+      contactId: contact.id, subject: 's', body: 'b',
+      promptVersion: 'outreach_v1', hookVerified: true,
+    });
+    const draft = { id: d.id, status: 'pending_review', subject: 's', body: 'b' };
     await expect(
-      sendApprovedDraft({ draft, recipientEmail: 'a@example.com', kind: 'initial', caps, transport: fakeTransport })
+      sendApprovedDraft({ draft, recipientEmail: 'p@example.com', kind: 'initial', caps, transport: fakeTransport })
     ).rejects.toThrow(SendBlockedError);
   });
 
   it('refuses to send to a suppressed address', async () => {
-    suppress('blocked@example.com', 'bounce');
-    const draft = { id: 2, status: 'approved', subject: 's', body: 'b' };
+    const { draftId, email } = seedApprovedDraft({ email: 'blocked@example.com' });
+    suppress(email, 'bounce');
+    const draft = { id: draftId, status: 'approved', subject: 's', body: 'b' };
     await expect(
-      sendApprovedDraft({ draft, recipientEmail: 'blocked@example.com', kind: 'initial', caps, transport: fakeTransport })
+      sendApprovedDraft({ draft, recipientEmail: email, kind: 'initial', caps, transport: fakeTransport })
     ).rejects.toThrow(/suppressed/);
   });
 
   it('refuses to send once daily cap is hit', async () => {
-    const draft = { id: 3, status: 'approved', subject: 's', body: 'b' };
-    await sendApprovedDraft({ draft: { ...draft, id: 10 }, recipientEmail: 'a@example.com', kind: 'initial', caps, transport: fakeTransport });
-    await sendApprovedDraft({ draft: { ...draft, id: 11 }, recipientEmail: 'b@example.com', kind: 'initial', caps, transport: fakeTransport });
+    const { draftId: d1, email: e1 } = seedApprovedDraft({ email: 'a@example.com' });
+    const { draftId: d2, email: e2 } = seedApprovedDraft({ email: 'b@example.com' });
+    const { draftId: d3, email: e3 } = seedApprovedDraft({ email: 'c@example.com' });
+    const opts = { kind: 'initial', caps, transport: fakeTransport };
+    await sendApprovedDraft({ draft: { id: d1, status: 'approved', subject: 's', body: 'b' }, recipientEmail: e1, ...opts });
+    await sendApprovedDraft({ draft: { id: d2, status: 'approved', subject: 's', body: 'b' }, recipientEmail: e2, ...opts });
     await expect(
-      sendApprovedDraft({ draft: { ...draft, id: 12 }, recipientEmail: 'c@example.com', kind: 'initial', caps, transport: fakeTransport })
+      sendApprovedDraft({ draft: { id: d3, status: 'approved', subject: 's', body: 'b' }, recipientEmail: e3, ...opts })
     ).rejects.toThrow(/daily_cap_reached/);
   });
 
   it('happy path: approved + clean recipient + under cap sends and increments counter', async () => {
-    const draft = { id: 20, status: 'approved', subject: 'hi', body: 'body' };
+    const { draftId, email } = seedApprovedDraft({ email: 'ok@example.com' });
     const result = await sendApprovedDraft({
-      draft, recipientEmail: 'ok@example.com', kind: 'initial', caps, transport: fakeTransport,
+      draft: { id: draftId, status: 'approved', subject: 'hi', body: 'body' },
+      recipientEmail: email, kind: 'initial', caps, transport: fakeTransport,
     });
     expect(result.messageId).toBeDefined();
   });

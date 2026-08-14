@@ -15,6 +15,7 @@ import { runEnrich } from './enrich/index.js';
 import { runDraft } from './draft/index.js';
 import { runSend } from './send/index.js';
 import { runReport } from './report/index.js';
+import { reviewList, reviewShow, reviewApprove, reviewReject, reviewEdit } from './review/index.js';
 
 const commands = {
   async init() {
@@ -90,6 +91,24 @@ const commands = {
     const stats = await runReport({ config });
     logger.info(stats, 'report complete');
   },
+
+  async review(argv) {
+    loadConfig();
+    getDb();
+    runMigrations();
+    const sub = argv._[1] || 'list';
+    const arg = argv._[2];
+    switch (sub) {
+      case 'list':    return reviewList();
+      case 'show':    return reviewShow(arg);
+      case 'approve': return reviewApprove(arg);
+      case 'reject':  return reviewReject(arg, argv.reason);
+      case 'edit':    return reviewEdit(arg);
+      default:
+        logger.error({ sub }, 'unknown review subcommand (list|show|approve|reject|edit)');
+        process.exit(1);
+    }
+  },
 };
 
 const argv = yargs(hideBin(process.argv))
@@ -106,7 +125,10 @@ const argv = yargs(hideBin(process.argv))
   .command('draft',    'Module 5: generate personalized drafts')
   .command('send',     'Module 6: send approved drafts (with all safety gates)')
   .command('report',   'Module 7: funnel report')
-  .demandCommand(1, 'Specify a command: init | discover | ingest | qualify | enrich | draft | send | report')
+  .command('review',   'Review pending drafts (list|show|approve|reject|edit)', (y) => {
+    y.option('reason', { type: 'string', describe: 'Reject reason (for review reject)' });
+  })
+  .demandCommand(1, 'Specify a command: init | discover | ingest | qualify | enrich | draft | send | report | review')
   .strict()
   .help()
   .version('3.0.0-alpha')

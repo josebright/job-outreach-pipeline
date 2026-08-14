@@ -234,6 +234,76 @@ export function contactCountForCompany(companyId) {
   ).get(companyId).n;
 }
 
+export function contactById(id) {
+  return getDb().prepare('SELECT * FROM contact WHERE id = ?').get(id);
+}
+
+/* ── draft ──────────────────────────────────────────────────── */
+
+export function createDraft({
+  contactId, jobId = null, subject, body,
+  promptVersion, hookEvidence = null, hookVerified = false, model = null,
+}) {
+  const db = getDb();
+  const result = db.prepare(`
+    INSERT INTO draft (
+      contact_id, job_id, subject, body, prompt_version,
+      hook_evidence, hook_verified, model, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')
+  `).run(
+    contactId, jobId, subject, body, promptVersion,
+    hookEvidence, hookVerified ? 1 : 0, model,
+  );
+  recordEvent({
+    entity: 'draft',
+    entityId: result.lastInsertRowid,
+    event: 'draft_created',
+    detail: { contactId, jobId, model, promptVersion, hookVerified },
+  });
+  return { id: result.lastInsertRowid };
+}
+
+export function draftById(id) {
+  return getDb().prepare('SELECT * FROM draft WHERE id = ?').get(id);
+}
+
+export function draftsByStatus(status) {
+  return getDb().prepare(
+    'SELECT * FROM draft WHERE status = ? ORDER BY id ASC'
+  ).all(status);
+}
+
+export function updateDraftStatus(id, status, extra = {}) {
+  const db = getDb();
+  const now = "datetime('now')";
+  if (status === 'approved') {
+    db.prepare(`UPDATE draft SET status = ?, approved_at = ${now} WHERE id = ?`).run(status, id);
+  } else if (status === 'sent') {
+    db.prepare(`UPDATE draft SET status = ?, sent_at = ${now} WHERE id = ?`).run(status, id);
+  } else {
+    db.prepare('UPDATE draft SET status = ?, reject_reason = ? WHERE id = ?')
+      .run(status, extra.reason || null, id);
+  }
+  recordEvent({ entity: 'draft', entityId: id, event: status, detail: extra });
+}
+
+export function updateDraftContent(id, { subject, body }) {
+  getDb().prepare('UPDATE draft SET subject = ?, body = ? WHERE id = ?').run(subject, body, id);
+  recordEvent({ entity: 'draft', entityId: id, event: 'edited', detail: {} });
+}
+
+/**
+ * Any pending_review draft for this contact+job (used to skip re-draft).
+ */
+export function existingDraftFor(contactId, jobId) {
+  return getDb().prepare(`
+    SELECT * FROM draft
+    WHERE contact_id = ? AND (job_id = ? OR (? IS NULL AND job_id IS NULL))
+      AND status IN ('pending_review','approved','sent')
+    LIMIT 1
+  `).get(contactId, jobId, jobId);
+}
+
 /* ── suppression ────────────────────────────────────────────── */
 
 export function isSuppressed(email) {

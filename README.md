@@ -4,6 +4,8 @@ Discovers companies actively hiring remote software engineers, qualifies fit aga
 
 See [PRD-remote-job-outreach-system.md](PRD-remote-job-outreach-system.md) for the full design.
 
+**Status:** all seven modules implemented. 98 vitest cases across 17 files, all green.
+
 ## Architecture
 
 Seven modules in a linear pipeline. Each is a CLI subcommand, idempotent, and re-runnable.
@@ -41,13 +43,43 @@ For local dev, copy `config.example.yaml` to `config.yaml` and `.env.example` to
 ```bash
 npm install
 npm run pipeline:init      # create SQLite and apply migrations
-npm test                   # 48 tests, all green
+npm test                   # 98 tests, all green
 npm run pipeline:discover  # populate companies
 npm run pipeline:ingest    # pull jobs from ATS APIs
-npm run pipeline:report    # show funnel counts
+npm run pipeline:qualify   # apply Q1-Q5 filters + scoring
+npm run pipeline:enrich    # find contacts via Hunter
+npm run pipeline:draft     # generate personalized drafts (Claude)
+npm run pipeline:send      # send approved drafts + follow-ups + poll replies
+npm run pipeline:report    # per-segment funnel breakdowns
+```
+
+**Reviewing drafts** (human-in-the-loop, terminal-based, no Airtable needed):
+
+```bash
+npm run pipeline -- review list                          # pending drafts
+npm run pipeline -- review show 42                       # preview draft #42
+npm run pipeline -- review edit 42                       # opens $EDITOR
+npm run pipeline -- review approve 42                    # queue for send
+npm run pipeline -- review reject 42 --reason "generic"  # discard
+```
+
+**Evaluating the qualify filter against a labeled set:**
+
+```bash
+npm run pipeline -- qualify --eval data/labeled_postings.csv
+# CSV columns: job_id,expected  (expected in qualified|disqualified|needs_review)
+# Exits non-zero if precision < 0.90 or recall < 0.80 (PRD gate)
 ```
 
 Each subcommand is documented in `src/pipeline/cli.js`.
+
+## Before first run — required user input
+
+Three data files are gitignored and must exist locally (or on the Railway Volume) before the pipeline can produce meaningful output:
+
+- `data/profile.yaml` — your quantified achievements, links, and contractor readiness. Template at `data/profile.example.yaml`. The draft module refuses to run if the placeholder `REPLACE:` lines are unchanged.
+- `data/seed_companies.csv` — hand-picked companies known to hire from Nigeria. Columns: `name,ats,slug[,hq_country,size_band,nigeria_presence,notes]`. Even 20 rows meaningfully lifts the funnel.
+- `data/labeled_postings.csv` (optional) — for tuning the qualify filter. Columns: `job_id,expected`. 50 rows unlocks the Phase 2 precision/recall gate.
 
 ## Deployment
 
