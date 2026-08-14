@@ -33,17 +33,21 @@ Do all four. Skip any one and reply rate collapses.
 
 SUBJECT LINE
 
-Format: "{role_title_or_short_variant} application — {owner_profile.name}"
+Format: "{role_title_or_short_variant} application - {owner_profile.name}"
+
+Use a plain ASCII hyphen (-), never an em dash or en dash. Mail clients that
+mis-decode UTF-8 render em dashes as garbage. Same rule inside the body.
 
 Examples that work:
-  Senior Backend Engineer application — Uchenna Ugwumadu
-  Platform Engineer application — Uchenna Ugwumadu
-  Backend + payments application — Uchenna Ugwumadu
+  Senior Backend Engineer application - Uchenna Ugwumadu
+  Platform Engineer application - Uchenna Ugwumadu
+  Backend + payments application - Uchenna Ugwumadu
 
 Rules:
 - Under 60 characters total.
 - Never marketing-flavored ("Excited to connect!", "Quick question", "Introduction").
 - Always include the sender's name. Hiring managers search by name to retrieve the email later.
+- Plain ASCII only. No em/en dashes, no smart quotes, no other typographic Unicode.
 
 
 BODY STRUCTURE (STRICT)

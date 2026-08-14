@@ -104,11 +104,37 @@ export async function generateDraft({
 
   const { subject, body, hook_evidence } = toolUse.input || {};
   return {
-    subject: String(subject || '').trim(),
-    body: String(body || '').trim(),
-    hookEvidence: String(hook_evidence || '').trim(),
+    subject: sanitizeAsciiTypography(String(subject || '').trim()),
+    body: sanitizeAsciiTypography(String(body || '').trim()),
+    hookEvidence: sanitizeAsciiTypography(String(hook_evidence || '').trim()),
     model,
     promptVersion,
     rawUsage: res.usage || null,
   };
+}
+
+/**
+ * Strip typographic Unicode the prompt bans but the LLM occasionally emits
+ * anyway. Prevents mojibake on mail clients that mis-decode UTF-8 subject
+ * headers. Applied to subject, body, and hook_evidence.
+ *
+ * Codepoints handled:
+ *   U+2014 em dash, U+2013 en dash              -> " - "
+ *   U+2018 U+2019 curly single quotes           -> '
+ *   U+201C U+201D curly double quotes           -> "
+ *   U+2026 horizontal ellipsis                  -> ...
+ *   U+00A0 U+2007 U+2009 U+202F unicode spaces  -> plain space
+ *   U+2022 U+25E6 U+2027 U+25AA bullets         -> hyphen
+ */
+export function sanitizeAsciiTypography(s) {
+  if (!s) return s;
+  return String(s)
+    .replace(/[—–]/g, ' - ')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...')
+    .replace(/[      ]/g, ' ')
+    .replace(/[•◦‧▪]/g, '-')
+    .replace(/ {2,}/g, ' ')
+    .trim();
 }

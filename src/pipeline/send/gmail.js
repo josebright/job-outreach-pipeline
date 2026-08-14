@@ -27,17 +27,35 @@ function base64url(str) {
 }
 
 /**
- * Build an RFC 5322 message with the fields we care about.
- * Plain-text only. HTML would hurt deliverability at cold-outreach volume.
+ * RFC 2047 encoded-word for a header value that contains non-ASCII bytes.
+ * Returns the value unchanged when it is already 7-bit clean.
+ */
+export function encodeHeader(value) {
+  const s = String(value || '');
+  if (!/[^\x00-\x7F]/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+}
+
+/**
+ * Build an RFC 5322 message. Plain-text only. Handles UTF-8 in subject,
+ * display name, and body correctly (was previously declaring 7bit while
+ * shipping 8-bit bytes, which caused mojibake at receiving mail clients).
  */
 export function buildMime({ from, fromName, to, subject, body, replyTo = null, inReplyTo = null, references = null }) {
+  const encodedSubject = encodeHeader(subject);
+  const fromHeader = fromName
+    ? (/[^\x00-\x7F]/.test(fromName)
+        ? `${encodeHeader(fromName)} <${from}>`
+        : `"${fromName}" <${from}>`)
+    : from;
+
   const headers = [
-    `From: ${fromName ? `"${fromName}" <${from}>` : from}`,
+    `From: ${fromHeader}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodedSubject}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: 7bit',
+    'Content-Type: text/plain; charset=UTF-8; format=flowed',
+    'Content-Transfer-Encoding: 8bit',
   ];
   if (replyTo && replyTo !== from) headers.push(`Reply-To: ${replyTo}`);
   if (inReplyTo) headers.push(`In-Reply-To: ${inReplyTo}`);
