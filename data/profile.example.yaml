@@ -1,0 +1,59 @@
+# data/profile.example.yaml
+# Copy to data/profile.yaml. This is the "profile pack" the LLM sees when
+# drafting outreach. Every line here can end up in an email, so review each field.
+#
+# Rules of thumb:
+# - Only put facts that are true today. The prompt is instructed not to invent,
+#   but hallucination is easier when the pack itself is thin.
+# - Achievements should be quantified. "Reduced report generation from 4h to 6min"
+#   beats "Improved reporting performance".
+
+name: Uchenna Bright Ugwumadu
+title: Senior Software Engineer
+location: Lagos, Nigeria
+timezone: WAT (UTC+1)
+
+# Timezone overlap facts the LLM can pick from for the friction-removal line.
+timezone_notes:
+  - full overlap with EU working hours
+  - 4 to 6 hours of overlap with US East Coast mornings
+
+# Contractor readiness. Track A uses this. Track B replaces it with relocation notes.
+contractor:
+  ready: true
+  platforms: [Deel, Remote.com, Oyster]
+  note: set up as an independent contractor, invoice directly or via any EOR
+
+# Public links. These appear in every signature.
+links:
+  linkedin: https://www.linkedin.com/in/josebright
+  website:  https://brightugwumadu.vercel.app
+  github:   ""       # add when ready
+  repo:     ""       # this project's public repo, once open-sourced
+
+# Stack. Used by Q1 filter and by the LLM when matching achievements to job posts.
+stack:
+  languages: [JavaScript, TypeScript, Python, Node.js]
+  frameworks: [React, Next.js, Express, FastAPI]
+  data: [PostgreSQL, MongoDB, Redis]
+  cloud: [AWS, Vercel, Railway]
+  practice: [automation, API design, systems integration, CI/CD]
+
+# Achievements. Each entry is a candidate for the "one quantified achievement"
+# line in the draft. The LLM picks the one most relevant to the target role.
+# Keep each entry short, concrete, and true.
+achievements:
+  - "REPLACE: state one measured outcome you shipped, with numbers and a timeframe."
+  - "REPLACE: another, in a different domain (e.g., automation, latency, revenue, users)."
+  - "REPLACE: another, ideally one that reads as senior-scope (design, ownership, cross-team)."
+
+# One-liner used when the LLM needs a compact intro.
+one_liner: >
+  Senior engineer focused on turning business logic into working automation,
+  with experience shipping systems that others in the team can maintain.
+
+# Track B (relocation) fields. Only used when track: B is in play.
+relocation:
+  ready_to_relocate: true
+  visa_situation: none currently, open to sponsored visa
+  target_countries: [Germany, Netherlands, Ireland, Canada, UAE, United Kingdom]

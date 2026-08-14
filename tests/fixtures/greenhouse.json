@@ -1,0 +1,23 @@
+{
+  "jobs": [
+    {
+      "id": 4123456,
+      "internal_job_id": 987654,
+      "title": "Senior Backend Engineer",
+      "updated_at": "2026-08-01T10:00:00Z",
+      "location": { "name": "Remote - Worldwide" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4123456",
+      "content": "<p>We are hiring a <b>senior backend engineer</b> to help scale our payments infrastructure. Salary range: $150,000-$200,000 USD.</p><ul><li>Node.js and TypeScript</li><li>Postgres, Kafka</li></ul>",
+      "departments": [{ "name": "Engineering" }]
+    },
+    {
+      "id": 4123457,
+      "title": "Junior Frontend Developer",
+      "updated_at": "2026-07-28T09:00:00Z",
+      "location": { "name": "San Francisco, CA" },
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/4123457",
+      "content": "<p>Entry level React role. On-site in SF.</p>",
+      "departments": [{ "name": "Engineering" }]
+    }
+  ]
+}

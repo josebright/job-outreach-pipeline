@@ -1,0 +1,29 @@
+[
+  { "legal": "See https://remoteok.com/terms" },
+  {
+    "id": 201,
+    "epoch": 1754000000,
+    "slug": "acme-senior-backend",
+    "company": "Acme Corp",
+    "position": "Senior Backend Engineer",
+    "tags": ["dev", "backend", "nodejs"],
+    "location": "Worldwide",
+    "url": "https://remoteok.com/l/201",
+    "apply_url": "https://apply.workable.com/acme/j/AAA/"
+  },
+  {
+    "id": 202,
+    "company": "Gamma Studio",
+    "position": "Marketing Manager",
+    "tags": ["marketing", "content"],
+    "location": "US"
+  },
+  {
+    "id": 203,
+    "company": "Delta AI",
+    "position": "Software Engineer",
+    "tags": ["python"],
+    "location": "EMEA",
+    "url": "https://jobs.lever.co/delta-ai/xyz"
+  }
+]

@@ -1,0 +1,59 @@
+{
+  "name": "job-finder",
+  "version": "3.0.0-alpha",
+  "description": "Remote job outreach pipeline. v2 (auto-apply) preserved under `search` commands; v3 (outreach) under `pipeline` commands.",
+  "main": "src/pipeline/cli.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/pipeline/cli.js",
+    "pipeline": "node src/pipeline/cli.js",
+    "pipeline:init": "node src/pipeline/cli.js init",
+    "pipeline:discover": "node src/pipeline/cli.js discover",
+    "pipeline:ingest": "node src/pipeline/cli.js ingest",
+    "pipeline:qualify": "node src/pipeline/cli.js qualify",
+    "pipeline:enrich": "node src/pipeline/cli.js enrich",
+    "pipeline:draft": "node src/pipeline/cli.js draft",
+    "pipeline:send": "node src/pipeline/cli.js send",
+    "pipeline:report": "node src/pipeline/cli.js report",
+    "pipeline:daily": "node src/pipeline/cli.js discover && node src/pipeline/cli.js ingest && node src/pipeline/cli.js qualify && node src/pipeline/cli.js enrich && node src/pipeline/cli.js draft && node src/pipeline/cli.js report",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "v2:setup": "node src/index.js setup --resume resume.pdf",
+    "v2:search": "node src/index.js search"
+  },
+  "keywords": [
+    "job-finder",
+    "outreach",
+    "cold-email",
+    "ats",
+    "remote-jobs",
+    "visa-sponsorship"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@google/generative-ai": "^0.24.0",
+    "axios": "^1.6.2",
+    "axios-retry": "^4.5.0",
+    "better-sqlite3": "^11.3.0",
+    "cheerio": "^1.0.0-rc.12",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "googleapis": "^144.0.0",
+    "js-yaml": "^4.1.0",
+    "nodemailer": "^6.9.7",
+    "p-limit": "^4.0.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "puppeteer": "^21.6.1",
+    "yargs": "^17.7.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

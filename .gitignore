@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.local
+.env.production
+
+# Local personal data (never commit)
+data/profile.json
+data/profile.yaml
+data/seed_companies.csv
+resume.pdf
+
+# Runtime state
+data/pipeline.db
+data/pipeline.db-wal
+data/pipeline.db-shm
+
+# v2 legacy runtime output
+output/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo

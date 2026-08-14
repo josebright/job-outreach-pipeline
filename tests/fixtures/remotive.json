@@ -1,0 +1,37 @@
+{
+  "0-legal-notice": "Data from Remotive",
+  "jobs": [
+    {
+      "id": 111,
+      "url": "https://remotive.com/remote-jobs/software-dev/senior-backend-engineer-1",
+      "title": "Senior Backend Engineer",
+      "company_name": "Acme Corp",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "publication_date": "2026-08-10T10:00:00",
+      "candidate_required_location": "Worldwide",
+      "description": "Remote Node.js role"
+    },
+    {
+      "id": 112,
+      "url": "https://boards.greenhouse.io/beta-labs/jobs/98765",
+      "title": "Staff Engineer",
+      "company_name": "Beta Labs, Inc.",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "publication_date": "2026-08-09T10:00:00",
+      "candidate_required_location": "EMEA",
+      "description": "Distributed systems role"
+    },
+    {
+      "id": 113,
+      "url": "https://remotive.com/x",
+      "title": "Backend Engineer",
+      "company_name": "Acme Corp",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "publication_date": "2026-08-08T10:00:00",
+      "candidate_required_location": "EMEA"
+    }
+  ]
+}

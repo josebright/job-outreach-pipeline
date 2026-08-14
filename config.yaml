@@ -1,0 +1,115 @@
+# config.example.yaml
+# Copy to config.yaml and edit. Everything tunable without code changes.
+# Validated against src/pipeline/config/schema.js on load.
+
+tracks_enabled: [A]           # A = remote/USD/EUR/GBP. Add B for visa/relocation.
+
+# ── Stack fit (Q1 filter) ──────────────────────────────────────
+stack:
+  keywords:
+    - software engineer
+    - backend engineer
+    - fullstack engineer
+    - platform engineer
+    - node
+    - python
+    - typescript
+    - react
+    - automation
+    - api
+  seniority_accept: [senior, staff, principal, lead, sr, sr., "mid-senior"]
+  seniority_reject: [intern, internship, junior, jr, graduate, "new grad", entry, entry-level]
+
+# ── Location fit (Q2 filter) ───────────────────────────────────
+location:
+  allow:
+    - remote worldwide
+    - remote (worldwide)
+    - worldwide
+    - anywhere
+    - remote - anywhere
+    - fully remote
+    - emea
+    - europe/africa
+    - africa
+    - global
+  deny:
+    - "us only"
+    - "united states only"
+    - "must be located in the us"
+    - "must reside in"
+    - "us timezones only"
+    - "eu citizens only"
+    - "remote (us)"
+    - "remote - us"
+    - "canada only"
+    - "uk only"
+
+# ── Currency fit (Q3 filter) ───────────────────────────────────
+currency:
+  accept: [USD, EUR, GBP]
+  hq_country_currency_map:
+    US: USD
+    GB: GBP
+    UK: GBP
+    IE: EUR
+    DE: EUR
+    NL: EUR
+    FR: EUR
+    ES: EUR
+    IT: EUR
+    PT: EUR
+    SE: EUR
+    DK: EUR
+    NO: EUR
+    FI: EUR
+    CH: USD
+    CA: USD
+    AU: USD
+  contractor_signal_words: [deel, remote.com, oyster, "hire anywhere", "employer of record", "eor"]
+
+# ── Scoring ────────────────────────────────────────────────────
+scoring:
+  threshold: 40
+  weights:
+    nigeria_presence: 30
+    explicit_salary: 15
+    remote_worldwide: 15
+    recent_post_days: 15
+    stack_overlap: 10
+    company_size_sweet_spot: 10
+    eor_mention: 5
+
+# ── Discovery ──────────────────────────────────────────────────
+discover:
+  serp_provider: serper       # serper | serpapi | google_pse
+  monthly_query_budget: 500
+  ats_platforms: [greenhouse, lever, ashby, workable]
+  aggregator_feeds: [remotive, remoteok]
+  seed_csv_path: data/seed_companies.csv
+
+# ── Enrichment ─────────────────────────────────────────────────
+enrichment:
+  providers: [hunter]         # add apollo when key is available
+  monthly_budget_usd: 40
+  min_email_status_for_auto_send: verified
+
+# ── LLM ────────────────────────────────────────────────────────
+llm:
+  drafts_provider: anthropic
+  drafts_model: claude-sonnet-4-5-20250929
+  classifier_provider: gemini
+  classifier_model: gemini-2.0-flash
+  prompt_version: outreach_v1
+
+# ── Send ───────────────────────────────────────────────────────
+send:
+  domain: capacitydey.org
+  sender_email: bright@capacitydey.org     # change to uchenna@capacitydey.org once alias exists
+  sender_name: Uchenna Ugwumadu
+  reply_to: uchennaugwumadu8@gmail.com     # remove once mail forwarding is set up on the domain
+  daily_cap_initial: 15
+  daily_cap_followup: 15
+  send_window_local_start: "08:30"
+  send_window_local_end: "11:00"
+  bounce_rate_alarm_pct: 3

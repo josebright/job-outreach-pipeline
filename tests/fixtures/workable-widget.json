@@ -1,0 +1,35 @@
+{
+  "name": "Example Ltd",
+  "description": "We build things.",
+  "jobs": [
+    {
+      "id": 99001,
+      "shortcode": "ABCDEF1234",
+      "title": "Senior Node.js Engineer",
+      "code": "ENG-101",
+      "department": "Engineering",
+      "location": {
+        "location_str": "Remote (Worldwide)",
+        "city": null,
+        "country": "Worldwide"
+      },
+      "remote": true,
+      "published_on": "2026-08-02T12:00:00Z",
+      "created_at": "2026-08-02T12:00:00Z",
+      "application_url": "https://apply.workable.com/example/j/ABCDEF1234/",
+      "url": "https://apply.workable.com/example/j/ABCDEF1234/",
+      "shortlink": "https://apply.workable.com/j/ABCDEF1234",
+      "summary": "Backend Node.js + TypeScript role, fully remote, USD salary."
+    },
+    {
+      "id": 99002,
+      "shortcode": "ZZZZZZZZZZ",
+      "title": "Office Manager",
+      "location": { "city": "Amsterdam", "country": "Netherlands", "location_str": "Amsterdam, Netherlands" },
+      "remote": false,
+      "published_on": "2026-07-15T09:00:00Z",
+      "application_url": "https://apply.workable.com/example/j/ZZZZZZZZZZ/",
+      "summary": "Onsite office ops role."
+    }
+  ]
+}

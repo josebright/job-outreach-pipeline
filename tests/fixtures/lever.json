@@ -1,0 +1,35 @@
+[
+  {
+    "id": "abc-123-def",
+    "text": "Staff Platform Engineer",
+    "hostedUrl": "https://jobs.lever.co/example/abc-123-def",
+    "applyUrl": "https://jobs.lever.co/example/abc-123-def/apply",
+    "createdAt": 1754000000000,
+    "updatedAt": 1754500000000,
+    "workplaceType": "remote",
+    "categories": {
+      "team": "Platform",
+      "department": "Engineering",
+      "location": "Remote - EMEA",
+      "commitment": "Full-time"
+    },
+    "descriptionPlain": "We are looking for a staff engineer to lead our EU infrastructure work. Compensation is competitive and paid in EUR.",
+    "lists": [
+      { "text": "Requirements", "content": "<li>7+ years experience</li><li>Kubernetes</li>" }
+    ],
+    "salaryRange": { "min": 120000, "max": 160000, "currency": "EUR" }
+  },
+  {
+    "id": "xyz-999-ghi",
+    "text": "Senior Fullstack Engineer",
+    "hostedUrl": "https://jobs.lever.co/example/xyz-999-ghi",
+    "createdAt": 1753000000000,
+    "updatedAt": 1753000000000,
+    "workplaceType": "on-site",
+    "categories": {
+      "department": "Product",
+      "location": "London, UK"
+    },
+    "descriptionPlain": "Onsite role in London. £80,000-£100,000."
+  }
+]

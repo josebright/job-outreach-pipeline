@@ -1,0 +1,22 @@
+# Never ship these to Railway.
+.env
+.env.local
+.env.production
+data/pipeline.db
+data/pipeline.db-wal
+data/pipeline.db-shm
+data/profile.json
+data/profile.yaml
+data/seed_companies.csv
+node_modules
+npm-debug.log*
+output
+.git
+.github
+.vscode
+.idea
+.DS_Store
+tests
+coverage
+*.md
+!README.md

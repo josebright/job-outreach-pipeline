@@ -1,0 +1,12 @@
+{
+  "id": 99001,
+  "shortcode": "ABCDEF1234",
+  "title": "Senior Node.js Engineer",
+  "description": "<h3>About the role</h3><p>You will own our payments service. TypeScript, Node.js, Postgres.</p><p>Compensation: $150,000 to $190,000 USD.</p>",
+  "requirements": "<ul><li>7+ years of Node.js</li></ul>",
+  "salary": {
+    "currency": "USD",
+    "salary_from": 150000,
+    "salary_to": 190000
+  }
+}

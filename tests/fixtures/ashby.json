@@ -1,0 +1,33 @@
+{
+  "name": "Example Co",
+  "jobs": [
+    {
+      "id": "b0a1c2d3-e4f5-6789-abcd-ef0123456789",
+      "title": "Senior Software Engineer",
+      "department": "Engineering",
+      "team": "Core Platform",
+      "location": "Remote - Worldwide",
+      "isRemote": true,
+      "publishedDate": "2026-08-05T00:00:00.000Z",
+      "updatedAt": "2026-08-05T00:00:00.000Z",
+      "employmentType": "FullTime",
+      "descriptionHtml": "<h2>About the role</h2><p>Ship code that matters. Node, TypeScript, Postgres.</p>",
+      "jobUrl": "https://jobs.ashbyhq.com/example/b0a1c2d3-e4f5-6789-abcd-ef0123456789",
+      "applicationUrl": "https://jobs.ashbyhq.com/example/b0a1c2d3-e4f5-6789-abcd-ef0123456789/application",
+      "compensation": {
+        "summaryComponents": [
+          { "currencyCode": "USD", "type": "salary", "min": 160000, "max": 220000 }
+        ]
+      }
+    },
+    {
+      "id": "cafe-1111",
+      "title": "Data Analyst",
+      "location": "Berlin",
+      "isRemote": false,
+      "publishedDate": "2026-07-20T00:00:00.000Z",
+      "descriptionHtml": "<p>SQL and Looker. Onsite Berlin.</p>",
+      "jobUrl": "https://jobs.ashbyhq.com/example/cafe-1111"
+    }
+  ]
+}
