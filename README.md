@@ -97,5 +97,5 @@ tests/                              # vitest suite + fixtures
 
 ## Requirements
 
-- Node.js 22 LTS or newer
+- Node.js 22 or 24 LTS. Production runs on Node 24 (Active LTS through April 2028); Node 22 is Maintenance LTS through April 2027 and works locally.
 - macOS or Linux for local dev (better-sqlite3 needs a native compile)

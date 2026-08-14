@@ -1,9 +1,9 @@
-# Force Railway (Nixpacks) to use Node 22 LTS.
-# Without this, Nixpacks picks a default that may drift between builds.
+# Force Railway (Nixpacks) to use Node 24 (Active LTS as of Aug 2026).
+# Node 22 is Maintenance LTS through April 2027; 24 is the current Active LTS.
 # Native modules (better-sqlite3) need python3 + gcc + make to compile.
 
 [phases.setup]
-nixPkgs = ["nodejs_22", "python3", "gcc", "gnumake"]
+nixPkgs = ["nodejs_24", "python3", "gcc", "gnumake"]
 
 [phases.install]
 cmds = ["npm ci --omit=dev"]
