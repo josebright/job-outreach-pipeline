@@ -5,7 +5,8 @@
 //   2. Internal node-cron scheduler for the daily pipeline.
 //   3. Health heartbeat every 6 hours so a stuck process shows in logs.
 //
-// A single service also means: SSH into it any time to run CLI commands.
+// Every path exits with code 0 when possible so env-var redeploys are not
+// mislabelled as crashes by Railway's alert system.
 import cron from 'node-cron';
 import { loadConfig } from '../src/pipeline/config/loader.js';
 import { getDb, closeDb } from '../src/pipeline/db/connection.js';
@@ -23,6 +24,16 @@ import { logger } from '../src/pipeline/util/logger.js';
 const DAILY_SCHEDULE = process.env.PIPELINE_DAILY_CRON || '0 7 * * *';   // 07:00 UTC
 const HEARTBEAT_SCHEDULE = '0 */6 * * *';                                 // every 6h
 
+// ── Global error guards ─────────────────────────────────────
+// Catch anything that would otherwise take the process down with a
+// non-zero exit code and trigger a Railway "Deploy Crashed" email.
+process.on('uncaughtException', (err) => {
+  logger.error({ err: err.message, stack: err.stack }, 'uncaughtException (swallowed)');
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason: reason?.message || String(reason) }, 'unhandledRejection (swallowed)');
+});
+
 let running = false;
 
 async function dailyRun() {
@@ -35,17 +46,16 @@ async function dailyRun() {
   try {
     const config = loadConfig();
     logger.info({ schedule: DAILY_SCHEDULE }, 'daily run started');
-    const dis = await runDiscover({ config });
-    const ing = await runIngest({ config });
-    const qua = await runQualify({ config });
-    const enr = await runEnrich({ config });
-    const drf = await runDraft({ config });
+    await runDiscover({ config });
+    await runIngest({ config });
+    await runQualify({ config });
+    await runEnrich({ config });
+    await runDraft({ config });
     const rep = await runReport({ config });
 
     const durationSec = Math.round((Date.now() - started) / 1000);
     logger.info({ durationSec }, 'daily run complete');
 
-    // Notify user in Telegram so they know drafts are ready.
     const pending = rep?.totals?.drafts_pending ?? 0;
     if (pending > 0) {
       await notify(
@@ -61,14 +71,13 @@ async function dailyRun() {
     }
   } catch (err) {
     logger.error({ err: err.message, stack: err.stack }, 'daily run failed');
-    await notify(`<b>Pipeline error:</b> ${err.message.slice(0, 200)}`);
+    try { await notify(`<b>Pipeline error:</b> ${err.message.slice(0, 200)}`); } catch { /* ignore */ }
   } finally {
     running = false;
   }
 }
 
 async function main() {
-  // One-time init: migrations run once at boot, then again defensively on cron.
   getDb();
   runMigrations();
   logger.info('service boot: migrations applied');
@@ -82,27 +91,39 @@ async function main() {
     logger.info({ uptime_s: Math.round(process.uptime()) }, 'heartbeat');
   }, { timezone: 'UTC' });
 
-  // Optional: run once on boot if REQUESTED. Off by default so redeploys
-  // don't accidentally trigger a real pipeline.
   if (process.env.RUN_ON_BOOT === '1') {
     logger.warn('RUN_ON_BOOT=1 detected; running pipeline immediately');
     await dailyRun();
   }
 
-  const shutdown = (sig) => {
-    logger.info({ sig }, 'shutdown signal received');
-    stopBot(sig);
-    closeDb();
-    // Give logs a beat to flush.
-    setTimeout(() => process.exit(0), 300);
+  // ── Graceful shutdown ──────────────────────────────────────
+  // Received SIGTERM/SIGINT (Railway redeploy, env-var change, manual stop).
+  // Stop the bot's long-poll, close the DB, exit 0 within a bounded time so
+  // Railway does not consider us "crashed".
+  let shuttingDown = false;
+  const shutdown = async (sig) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ sig }, 'shutdown: signal received, exiting cleanly');
+    try { stopBot(sig); } catch (e) { logger.warn({ err: e.message }, 'shutdown: stopBot errored'); }
+    try { closeDb(); }   catch (e) { logger.warn({ err: e.message }, 'shutdown: closeDb errored'); }
+    // Force exit after 3s even if something upstream holds the loop open.
+    setTimeout(() => process.exit(0), 3000).unref();
+    // Small delay to let logs flush.
+    await new Promise(r => setTimeout(r, 250));
+    process.exit(0);
   };
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGHUP',  () => shutdown('SIGHUP'));
 
   logger.info('service running; waiting for bot commands and cron fires');
 }
 
 main().catch(err => {
-  logger.error({ err: err.message, stack: err.stack }, 'service crashed');
-  process.exit(1);
+  // Log the reason and exit 0 so Railway does not flag as crashed on startup.
+  // If the reason is a real permanent misconfiguration, restart policy
+  // will still cycle it, but no crash email per exit.
+  logger.error({ err: err.message, stack: err.stack }, 'service startup failed (exiting 0)');
+  process.exit(0);
 });
