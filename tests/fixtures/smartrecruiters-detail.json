@@ -1,0 +1,27 @@
+{
+  "id": "744000123456789",
+  "name": "Senior Backend Engineer",
+  "company": { "identifier": "example", "name": "Example Corp" },
+  "jobAd": {
+    "sections": {
+      "jobDescription": {
+        "title": "About the role",
+        "text": "<p>We are hiring a <b>senior backend engineer</b> to scale our payments infrastructure across multiple regions. Stack: Node, TypeScript, Postgres, Kafka.</p>"
+      },
+      "qualifications": {
+        "title": "What we look for",
+        "text": "<ul><li>7+ years Node.js</li><li>Kubernetes on production</li></ul>"
+      },
+      "additionalInformation": {
+        "title": "Compensation",
+        "text": "$150,000 - $200,000 USD base."
+      }
+    }
+  },
+  "compensation": {
+    "description": "$150,000 - $200,000 USD base."
+  },
+  "actions": {
+    "apply": { "url": "https://jobs.smartrecruiters.com/example/744000123456789/apply" }
+  }
+}

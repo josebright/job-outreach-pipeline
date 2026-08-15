@@ -2,7 +2,7 @@
 # Copy to config.yaml and edit. Everything tunable without code changes.
 # Validated against src/pipeline/config/schema.js on load.
 
-tracks_enabled: [A]           # A = remote/USD/EUR/GBP. Add B for visa/relocation.
+tracks_enabled: [A, B]        # A = remote/USD/EUR/GBP (primary). B = onsite/hybrid with visa sponsorship (secondary).
 
 # ── Stack fit (Q1 filter) ──────────────────────────────────────
 stack:
@@ -87,7 +87,7 @@ scoring:
 discover:
   serp_provider: google_pse   # google_pse (free, 100/day) | serper (paid, needs $50 credit for site: queries) | serpapi
   monthly_query_budget: 500
-  ats_platforms: [greenhouse, lever, ashby, workable]
+  ats_platforms: [greenhouse, lever, ashby, workable, smartrecruiters]
   aggregator_feeds: [remotive, remoteok]
   seed_csv_path: data/seed_companies.csv
 

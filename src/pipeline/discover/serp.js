@@ -6,10 +6,11 @@ import { env } from '../config/loader.js';
 import { logger } from '../util/logger.js';
 
 const HOST_TO_SLUG_REGEX = {
-  'boards.greenhouse.io': /boards\.greenhouse\.io\/([a-z0-9-]+)/i,
-  'jobs.lever.co': /jobs\.lever\.co\/([a-z0-9-]+)/i,
-  'jobs.ashbyhq.com': /jobs\.ashbyhq\.com\/([a-z0-9-]+)/i,
-  'apply.workable.com': /apply\.workable\.com\/([a-z0-9-]+)/i,
+  'boards.greenhouse.io':    /boards\.greenhouse\.io\/([a-z0-9-]+)/i,
+  'jobs.lever.co':           /jobs\.lever\.co\/([a-z0-9-]+)/i,
+  'jobs.ashbyhq.com':        /jobs\.ashbyhq\.com\/([a-z0-9-]+)/i,
+  'apply.workable.com':      /apply\.workable\.com\/([a-z0-9-]+)/i,
+  'jobs.smartrecruiters.com': /jobs\.smartrecruiters\.com\/([a-z0-9-]+)/i,
 };
 
 /**

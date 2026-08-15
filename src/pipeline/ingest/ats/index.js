@@ -4,12 +4,14 @@ import * as greenhouse from './greenhouse.js';
 import * as lever from './lever.js';
 import * as ashby from './ashby.js';
 import * as workable from './workable.js';
+import * as smartrecruiters from './smartrecruiters.js';
 
 const REGISTRY = {
   [greenhouse.name]: greenhouse,
   [lever.name]: lever,
   [ashby.name]: ashby,
   [workable.name]: workable,
+  [smartrecruiters.name]: smartrecruiters,
 };
 
 export function getAts(name) {

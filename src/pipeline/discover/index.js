@@ -21,10 +21,11 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..', '..', '..');
 
 const DEFAULT_DORKS = {
-  greenhouse: '(backend OR "software engineer" OR platform) ("remote" AND ("worldwide" OR "EMEA" OR "Africa" OR "anywhere"))',
-  lever:      '("software engineer" OR backend OR fullstack) remote (worldwide OR EMEA OR anywhere)',
-  ashby:      '"software engineer" remote (worldwide OR EMEA OR anywhere)',
-  workable:   '"software engineer" remote (worldwide OR EMEA)',
+  greenhouse:      '(backend OR "software engineer" OR platform) ("remote" AND ("worldwide" OR "EMEA" OR "Africa" OR "anywhere"))',
+  lever:           '("software engineer" OR backend OR fullstack) remote (worldwide OR EMEA OR anywhere)',
+  ashby:           '"software engineer" remote (worldwide OR EMEA OR anywhere)',
+  workable:        '"software engineer" remote (worldwide OR EMEA)',
+  smartrecruiters: '"software engineer" remote (worldwide OR EMEA OR anywhere)',
 };
 
 export async function runDiscover({ config }) {

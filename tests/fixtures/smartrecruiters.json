@@ -1,0 +1,28 @@
+{
+  "offset": 0,
+  "limit": 100,
+  "totalFound": 2,
+  "content": [
+    {
+      "id": "744000123456789",
+      "name": "Senior Backend Engineer",
+      "uuid": "abcd-1234-efgh-5678",
+      "refNumber": "REF001Z",
+      "company": { "identifier": "example", "name": "Example Corp" },
+      "releasedDate": "2026-08-10T10:00:00.000Z",
+      "location": { "city": "Remote", "country": "us", "remote": true },
+      "department": { "label": "Engineering" },
+      "ref": "https://jobs.smartrecruiters.com/example/744000123456789"
+    },
+    {
+      "id": "744000987654321",
+      "name": "Marketing Manager",
+      "refNumber": "REF002M",
+      "company": { "identifier": "example", "name": "Example Corp" },
+      "releasedDate": "2026-08-01T09:00:00.000Z",
+      "location": { "city": "Berlin", "country": "de", "remote": false },
+      "department": { "label": "Marketing" },
+      "ref": "https://jobs.smartrecruiters.com/example/744000987654321"
+    }
+  ]
+}

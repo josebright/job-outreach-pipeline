@@ -33,10 +33,11 @@ export async function fetchCompanies({ maxJobs = 200 } = {}) {
 export function hintFromUrl(url) {
   if (!url) return null;
   const patterns = [
-    { ats: 'greenhouse', re: /boards\.greenhouse\.io\/([a-z0-9-]+)/i },
-    { ats: 'lever',      re: /jobs\.lever\.co\/([a-z0-9-]+)/i },
-    { ats: 'ashby',      re: /jobs\.ashbyhq\.com\/([a-z0-9-]+)/i },
-    { ats: 'workable',   re: /apply\.workable\.com\/([a-z0-9-]+)/i },
+    { ats: 'greenhouse',      re: /boards\.greenhouse\.io\/([a-z0-9-]+)/i },
+    { ats: 'lever',           re: /jobs\.lever\.co\/([a-z0-9-]+)/i },
+    { ats: 'ashby',           re: /jobs\.ashbyhq\.com\/([a-z0-9-]+)/i },
+    { ats: 'workable',        re: /apply\.workable\.com\/([a-z0-9-]+)/i },
+    { ats: 'smartrecruiters', re: /jobs\.smartrecruiters\.com\/([a-z0-9-]+)/i },
   ];
   for (const { ats, re } of patterns) {
     const m = url.match(re);

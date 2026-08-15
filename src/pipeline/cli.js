@@ -90,6 +90,13 @@ const commands = {
     runMigrations();
     const stats = await runReport({ config });
     logger.info(stats, 'report complete');
+    // Best-effort Telegram digest so manual `pipeline report` runs still
+    // notify. Silent if TELEGRAM_BOT_TOKEN is not set.
+    const pending = stats?.totals?.drafts_pending ?? 0;
+    if (pending > 0) {
+      const { notify } = await import('./bot/telegram.js');
+      await notify(`Report ping: ${pending} draft(s) pending review. Use /list.`);
+    }
   },
 
   async review(argv) {
