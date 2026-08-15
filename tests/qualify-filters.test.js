@@ -39,11 +39,35 @@ describe('Q1: role matches profile', () => {
     expect(r.reason).toBe('seniority_below_target');
   });
 
-  it('rejects when no stack keyword appears', () => {
+  it('rejects when title is not engineering (Product Manager)', () => {
     const job = { title: 'Product Manager', description_text: 'roadmap and stakeholders' };
     const r = q1_roleMatches(job, config);
     expect(r.pass).toBe(false);
+    expect(r.reason).toBe('title_not_engineering');
+  });
+
+  it('rejects engineering title with no stack keyword match', () => {
+    const job = { title: 'Chemical Engineer', description_text: 'refinery operations' };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
     expect(r.reason).toBe('no_stack_keyword_match');
+  });
+
+  it('rejects a Demand Generation Lead even if description lists Python', () => {
+    const job = { title: 'Demand Generation Lead', description_text: 'We use Python and Node internally.' };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toBe('title_not_engineering');
+  });
+
+  it('accepts Solutions Architect (title has role marker)', () => {
+    const job = { title: 'Senior Solutions Architect', description_text: 'Node, Python, AWS.' };
+    expect(q1_roleMatches(job, config).pass).toBe(true);
+  });
+
+  it('accepts Site Reliability Engineer', () => {
+    const job = { title: 'Site Reliability Engineer', description_text: 'Node, Kubernetes.' };
+    expect(q1_roleMatches(job, config).pass).toBe(true);
   });
 
   it('does not confuse "seniority" with "senior" in reject list check', () => {

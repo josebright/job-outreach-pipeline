@@ -19,8 +19,19 @@ export function q1_roleMatches(job, config) {
   const text = compact(`${job.title || ''} ${job.description_text || ''}`);
   const { keywords, seniority_accept, seniority_reject } = config.stack;
 
-  const hasKeyword = keywords.some(k => text.includes(norm(k)));
-  if (!hasKeyword) return { pass: false, reason: 'no_stack_keyword_match' };
+  // Split keywords into ROLE keywords (must appear in title) and STACK
+  // keywords (may appear anywhere). Prevents "Demand Generation Lead" from
+  // qualifying just because the description happens to mention Python.
+  const ROLE_MARKERS = [
+    'engineer', 'developer', 'architect', 'sre', 'devops',
+    'programmer', 'software', 'backend', 'frontend', 'fullstack', 'full-stack', 'full stack',
+    'platform', 'infrastructure', 'ml', 'data engineer', 'technical lead', 'tech lead',
+  ];
+  const titleHasRole = ROLE_MARKERS.some(m => title.includes(m));
+  if (!titleHasRole) return { pass: false, reason: 'title_not_engineering' };
+
+  const hasStackKeyword = keywords.some(k => text.includes(norm(k)));
+  if (!hasStackKeyword) return { pass: false, reason: 'no_stack_keyword_match' };
 
   const hasReject = (seniority_reject || []).some(r => wordBoundary(title, norm(r)));
   if (hasReject) {
