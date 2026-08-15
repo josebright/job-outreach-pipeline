@@ -34,6 +34,7 @@ export const env = {
   APOLLO_API_KEY: process.env.APOLLO_API_KEY || '',
   SERPER_API_KEY: process.env.SERPER_API_KEY || '',
   SERPAPI_KEY: process.env.SERPAPI_KEY || '',
+  BRAVE_SEARCH_API_KEY: process.env.BRAVE_SEARCH_API_KEY || '',
   GOOGLE_SEARCH_API_KEY: process.env.GOOGLE_SEARCH_API_KEY || '',
   GOOGLE_SEARCH_ENGINE_ID: process.env.GOOGLE_SEARCH_ENGINE_ID || '',
   PROXYCURL_API_KEY: process.env.PROXYCURL_API_KEY || '',

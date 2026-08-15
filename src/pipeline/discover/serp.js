@@ -18,10 +18,53 @@ const HOST_TO_SLUG_REGEX = {
  * targeted ATS host, dedupe, return.
  */
 export async function serpDork({ provider, host, query, limit = 30 }) {
+  if (provider === 'brave')      return braveDork({ host, query, limit });
   if (provider === 'google_pse') return googlePseDork({ host, query, limit });
   if (provider === 'serper')     return serperDork({ host, query, limit });
   logger.warn({ provider }, 'serp provider not implemented; returning empty');
   return [];
+}
+
+// Brave Search API. Free tier: 2,000 queries/month, 1 query/sec.
+// Docs: https://api.search.brave.com/app/documentation/web-search
+// Recommended replacement for Google Custom Search JSON API which stopped
+// accepting new customers in 2026 (Vertex AI Search is Google's official
+// successor but adds pricing + setup complexity).
+async function braveDork({ host, query, limit }) {
+  if (!env.BRAVE_SEARCH_API_KEY) {
+    logger.warn('BRAVE_SEARCH_API_KEY missing; skipping SERP discovery');
+    return [];
+  }
+  const fullQuery = `site:${host} ${query}`;
+  const perPage = 20;
+  const maxPages = Math.ceil(Math.min(limit, 100) / perPage);
+  const seen = new Set();
+
+  for (let page = 0; page < maxPages; page++) {
+    try {
+      const res = await http.get('https://api.search.brave.com/res/v1/web/search', {
+        params: { q: fullQuery, count: perPage, offset: page * perPage },
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': env.BRAVE_SEARCH_API_KEY,
+        },
+        validateStatus: s => s < 500,
+      });
+      if (res.status !== 200) {
+        logger.warn({ status: res.status, err: res.data?.message || res.data?.error }, 'brave non-200');
+        break;
+      }
+      const items = res.data?.web?.results || [];
+      if (items.length === 0) break;
+      for (const it of items) if (it.url) seen.add(it.url);
+      if (items.length < perPage) break;
+    } catch (err) {
+      logger.warn({ err: err.message }, 'brave error');
+      break;
+    }
+  }
+  return extractSlugs(host, [...seen]);
 }
 
 // Google Programmable Search Engine (PSE) via the Custom Search JSON API.

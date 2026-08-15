@@ -85,7 +85,7 @@ scoring:
 
 # ── Discovery ──────────────────────────────────────────────────
 discover:
-  serp_provider: google_pse   # google_pse (free, 100/day) | serper (paid, needs $50 credit for site: queries) | serpapi
+  serp_provider: brave        # brave (free 2000/mo, site: supported) | serper (paid) | google_pse (closed to new customers as of 2026) | serpapi
   monthly_query_budget: 500
   ats_platforms: [greenhouse, lever, ashby, workable, smartrecruiters]
   aggregator_feeds: [remotive, remoteok]

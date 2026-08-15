@@ -73,7 +73,7 @@ const llmSchema = z.object({
 });
 
 const discoverSchema = z.object({
-  serp_provider: z.enum(['serper', 'serpapi', 'google_pse']).default('serper'),
+  serp_provider: z.enum(['brave', 'serper', 'serpapi', 'google_pse']).default('brave'),
   monthly_query_budget: z.number().int().positive().default(500),
   ats_platforms: z.array(z.enum(['greenhouse', 'lever', 'ashby', 'workable', 'smartrecruiters'])).default([
     'greenhouse', 'lever', 'ashby', 'workable', 'smartrecruiters',
