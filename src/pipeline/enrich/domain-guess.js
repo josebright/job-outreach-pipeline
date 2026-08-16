@@ -2,7 +2,12 @@
 // Guess a company's primary domain from its ATS slug when neither website
 // nor a non-ATS job URL is available. Small startups almost always own
 // <slug>.com / .io / .ai / .co / .dev / .app. We DNS-check each candidate
-// and return the first that resolves.
+// and return the first that resolves both an A record AND an MX record.
+//
+// Why MX: a parked/squatted domain typically has an A record pointing at
+// some parking service but no MX (parking pages don't receive mail). A
+// real company mail domain always has MX. This filter cheaply rules out
+// squats before we spend a Hunter credit on them.
 //
 // Zero API cost. DNS lookups are cached by the OS resolver so re-checks
 // against the same slug are fast. No HTTP call, no user-agent, no risk.
@@ -17,17 +22,35 @@ const SKIP = new Set([
 
 /**
  * @param {{ slug?:string|null, name?:string|null }} company
+ * @param {{ resolver?: object }} [opts] - injectable DNS resolver for tests
  * @returns {Promise<string|null>} resolved domain (e.g., "modal.com") or null
  */
-export async function guessDomain(company) {
+export async function guessDomain(company, { resolver = dns } = {}) {
   const candidates = candidatesFor(company);
   for (const host of candidates) {
-    try {
-      const addrs = await dns.resolve4(host);
-      if (Array.isArray(addrs) && addrs.length > 0) return host;
-    } catch { /* NXDOMAIN or SERVFAIL — try next */ }
+    if (await hasARecord(host, resolver) && await hasMxRecord(host, resolver)) {
+      return host;
+    }
   }
   return null;
+}
+
+async function hasARecord(host, resolver) {
+  try {
+    const addrs = await resolver.resolve4(host);
+    return Array.isArray(addrs) && addrs.length > 0;
+  } catch { return false; }
+}
+
+async function hasMxRecord(host, resolver) {
+  try {
+    const mx = await resolver.resolveMx(host);
+    // resolveMx returns [{ exchange, priority }, ...]. Any non-empty
+    // list means the domain accepts mail somewhere. An empty list is
+    // returned as [] on some resolvers instead of throwing NODATA, so
+    // check length explicitly.
+    return Array.isArray(mx) && mx.length > 0 && mx.some(r => r?.exchange);
+  } catch { return false; }
 }
 
 export function candidatesFor(company) {
