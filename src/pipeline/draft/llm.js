@@ -75,6 +75,10 @@ export async function generateDraft({
   const system = loadSystemPrompt(promptVersion);
 
   const userPayload = {
+    // The EXACT job title as it appears in the ATS. The subject line MUST
+    // use this string verbatim — do not infer a title from the posting
+    // text, which often lists sibling roles at the same company.
+    job_title: job.title || '',
     job_posting: job.description_text || '',
     company: {
       name: company.name,

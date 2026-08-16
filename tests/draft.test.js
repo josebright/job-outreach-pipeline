@@ -16,6 +16,13 @@ import { _resetProfileForTests } from '../src/pipeline/draft/profile.js';
 const config = {
   llm: { drafts_model: 'claude-sonnet-4-6', prompt_version: 'outreach_v1' },
   scoring: { threshold: 40 },
+  // Defensive Q1/Q6 rechecks in runDraft need these blocks.
+  stack: {
+    keywords: ['software engineer', 'backend', 'node', 'python'],
+    seniority_accept: ['senior', 'staff', 'principal'],
+    seniority_reject: ['intern', 'junior'],
+    junior_override_min_annual: 0,
+  },
 };
 
 // Stub the LLM so tests never touch the network.
@@ -147,6 +154,59 @@ describe('runDraft', () => {
     const stats = await runDraft({ config });
     expect(generateDraft).not.toHaveBeenCalled();
     expect(stats.skippedNoContact).toBe(1);
+    expect(stats.draftsCreated).toBe(0);
+  });
+
+  it('defensive Q1: skips a "qualified" job whose title no longer passes Q1', async () => {
+    // Simulate the drift case: a job was qualified at some point, but the
+    // ATS renamed it to something we now reject (ML Engineer). Draft must
+    // not spend an Anthropic credit on it.
+    const c = upsertCompany({
+      name: 'Narvar', ats: 'greenhouse', slug: 'narvar',
+      source: 'seed', hqCountry: 'US', sizeBand: '201-500',
+    });
+    setCompanyStatus(c.id, 'qualified');
+    const j = upsertJob({
+      companyId: c.id, externalJobId: 'N1', title: 'Senior ML Engineer II',
+      descriptionText: 'Node.js and Python.', postedAt: new Date().toISOString(),
+    });
+    setJobQualifyResult(j.id, { status: 'qualified', score: 55 });
+    upsertContact({
+      companyId: c.id, fullName: 'Ram', title: 'CTO', roleType: 'founder',
+      email: 'ram@narvar.com', emailStatus: 'verified', source: 'hunter',
+    });
+
+    const stats = await runDraft({ config });
+    expect(generateDraft).not.toHaveBeenCalled();
+    expect(stats.skippedBadTitle).toBe(1);
+    expect(stats.draftsCreated).toBe(0);
+  });
+
+  it('defensive Q6: skips a company whose size is over the ceiling', async () => {
+    // Company is marked qualified but its size band is beyond the 500
+    // ceiling (this is how zombies leaked before). Draft must skip.
+    const c = upsertCompany({
+      name: 'Affirm', ats: 'greenhouse', slug: 'affirm',
+      source: 'seed', hqCountry: 'US', sizeBand: '1000+',
+    });
+    setCompanyStatus(c.id, 'qualified');
+    const j = upsertJob({
+      companyId: c.id, externalJobId: 'AF1', title: 'Senior Backend Engineer',
+      descriptionText: 'Node.js and Postgres.', postedAt: new Date().toISOString(),
+    });
+    setJobQualifyResult(j.id, { status: 'qualified', score: 65 });
+    upsertContact({
+      companyId: c.id, fullName: 'Michael', title: 'Founder', roleType: 'founder',
+      email: 'm@affirm.com', emailStatus: 'verified', source: 'hunter',
+    });
+
+    const cfg = {
+      ...config,
+      scoring: { ...config.scoring, reject_size_bands: ['501-1000', '1000+'] },
+    };
+    const stats = await runDraft({ config: cfg });
+    expect(generateDraft).not.toHaveBeenCalled();
+    expect(stats.skippedTooBig).toBe(1);
     expect(stats.draftsCreated).toBe(0);
   });
 });

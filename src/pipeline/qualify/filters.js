@@ -41,6 +41,18 @@ const REJECT_ROLE_MARKERS = [
   'sales engineer', 'solutions engineer', 'support engineer',
   'network engineer', 'systems engineer', 'system engineer',
   'ai engineer', 'mlops', 'ai/ml',
+  // Management titles (applicant is an IC engineer, not a hiring manager)
+  'engineering manager', 'engineering director', 'director of engineering',
+  'vp engineering', 'vp of engineering', 'head of engineering',
+  'chief technology', 'cto',
+  // Adjacent engineering roles outside SWE scope
+  'auth engineer', 'authentication engineer',
+  'pipeline engineer', 'ingestion engineer', 'ingestion pipeline',
+  'developer advocate', 'developer relations', 'devrel',
+  'growth engineer', 'forward deployed engineer', 'fde',
+  'game engineer', 'graphics engineer', 'audio engineer',
+  'blockchain engineer', 'protocol engineer', 'crypto engineer',
+  'reliability engineer', 'observability engineer',
 ];
 
 /**

@@ -63,10 +63,20 @@ export async function runQualify({ config } = {}) {
     touchedCompanies.add(company.id);
   }
 
-  // Refresh company-level scores and promote any newly-qualified companies.
+  // Refresh company-level scores and update company status.
+  // Promote if there's a qualified job with score > 0. Demote back to
+  // 'ingested' if every job now fails qualify (prevents zombie companies
+  // stuck at status='qualified' after we tightened filters — they clutter
+  // the diag and waste enrich cycles).
   for (const cid of touchedCompanies) {
     const s = refreshCompanyScore(cid);
-    if (s > 0) setCompanyStatus(cid, 'qualified', { topScore: s });
+    const c = companyById(cid);
+    if (s > 0) {
+      if (c?.status !== 'qualified') setCompanyStatus(cid, 'qualified', { topScore: s });
+    } else if (c?.status === 'qualified') {
+      // No qualified jobs left — demote so we stop drafting / enriching it.
+      setCompanyStatus(cid, 'ingested', { reason: 'no_qualified_jobs_remaining' });
+    }
   }
 
   logger.info(stats, 'qualify pass complete');

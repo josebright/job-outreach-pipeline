@@ -4,12 +4,14 @@
 // hook_evidence gate, and persist to the draft table.
 import {
   companiesByStatus, contactsByCompany, jobsByCompany,
-  createDraft, existingDraftFor,
+  createDraft, existingDraftFor, updateCompanyEnrichment,
 } from '../db/repo.js';
 import { charge, usage } from '../enrich/cost-guard.js';
 import { loadProfile } from './profile.js';
 import { generateDraft } from './llm.js';
 import { verifyHookEvidence } from './hook-verify.js';
+import { q1_roleMatches, q6_companySizeOK } from '../qualify/filters.js';
+import { companyEnrich, employeesToBand } from '../enrich/hunter.js';
 import { logger } from '../util/logger.js';
 
 // Re-export so existing tests importing from draft/index.js still work.
@@ -37,6 +39,8 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     skippedNoContact: 0,
     skippedNoJob: 0,
     skippedExisting: 0,
+    skippedBadTitle: 0,       // defensive Q1 rejected the top job's title
+    skippedTooBig: 0,         // company size resolved to >500 during draft
     errors: 0,
     budgetExceeded: false,
   };
@@ -70,7 +74,49 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       .filter(j => j.status === 'qualified')
       .sort((a, b) => (b.score || 0) - (a.score || 0));
     if (qualifiedJobs.length === 0) { stats.skippedNoJob++; continue; }
-    const topJob = qualifiedJobs[0];
+
+    // Defensive Q1: re-check every qualified job's title before we spend
+    // an Anthropic credit. Catches drift where the ATS changed the job
+    // title between the last qualify pass and now, plus any bug in Q1
+    // itself. Pick the first job whose title still passes Q1.
+    const topJob = qualifiedJobs.find(j => q1_roleMatches(j, config).pass);
+    if (!topJob) {
+      stats.skippedBadTitle++;
+      logger.warn({
+        companyId: company.id,
+        titles: qualifiedJobs.slice(0, 3).map(j => j.title),
+      }, 'draft: all qualified jobs failed defensive Q1 recheck');
+      continue;
+    }
+
+    // Defensive Q6: if the company's size is unknown, ask Hunter's
+    // companies/find one time — 1 credit — to backfill. If the resolved
+    // size is over the ceiling (501+), skip. Prevents drafting to
+    // Affirm / Canonical / Quora-class companies whose size was null
+    // because our discover flow didn't populate it.
+    if (!company.size_band) {
+      const domain = company.website ? new URL(
+        company.website.startsWith('http') ? company.website : `https://${company.website}`
+      ).hostname.replace(/^www\./, '') : null;
+      if (domain) {
+        try {
+          const info = await companyEnrich({ domain });
+          if (info) {
+            const band = employeesToBand(info.employeesEstimate);
+            if (band) {
+              updateCompanyEnrichment(company.id, { sizeBand: band });
+              company.size_band = band;
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+    const q6 = q6_companySizeOK(company, config);
+    if (!q6.pass) {
+      stats.skippedTooBig++;
+      logger.info({ companyId: company.id, band: company.size_band }, 'draft: company too big, skipping');
+      continue;
+    }
 
     for (const contact of contacts.slice(0, 1)) {          // top 1 contact per company
       if (existingDraftFor(contact.id, topJob.id)) {
