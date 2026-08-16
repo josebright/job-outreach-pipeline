@@ -160,12 +160,7 @@ describe('Q2: remote-eligible from Nigeria (Track A)', () => {
     const r = q2_remoteEligible(job, config, 'A');
     expect(r.pass).toBe(false);
     expect(r.needsReview).toBe(true);
-    expect(r.reason).toBe('location_ambiguous');
-  });
-
-  it('Track B skips this filter', () => {
-    const job = { location_raw: 'Berlin (Onsite)', description_text: '', remote_scope: 'onsite' };
-    expect(q2_remoteEligible(job, config, 'B').pass).toBe(true);
+    expect(r.reason).toBe('remote_ambiguous');
   });
 
   it('trusts remote_scope=africa even without an allow keyword hit', () => {
@@ -174,52 +169,20 @@ describe('Q2: remote-eligible from Nigeria (Track A)', () => {
   });
 });
 
-/* ── Q3 currency ────────────────────────────────────────────── */
-
-describe('Q3: pays USD/EUR/GBP (Track A)', () => {
-  const company = { hq_country: 'US' };
-
-  it('passes on explicit USD currency signal', () => {
-    const job = { currency_signal: 'USD', description_text: '$150k', comp_raw: null };
-    expect(q3_currencyOK(job, company, config, 'A').pass).toBe(true);
-  });
-
-  it('passes on HQ country mapping when no explicit signal', () => {
-    const job = { currency_signal: null, description_text: 'competitive', comp_raw: null };
-    expect(q3_currencyOK(job, company, config, 'A').pass).toBe(true);
-  });
-
-  it('passes on EOR mention when nothing else matches', () => {
-    const job = { currency_signal: null, description_text: 'We hire via Deel worldwide.', comp_raw: null };
-    expect(q3_currencyOK(job, { hq_country: 'NG' }, config, 'A').pass).toBe(true);
-  });
-
-  it('marks needs_review when no signal at all', () => {
-    const job = { currency_signal: null, description_text: 'competitive', comp_raw: null };
-    const r = q3_currencyOK(job, { hq_country: null }, config, 'A');
-    expect(r.pass).toBe(false);
-    expect(r.needsReview).toBe(true);
-  });
-
-  it('Track B skips this filter', () => {
-    const job = { currency_signal: null, description_text: '', comp_raw: null };
-    expect(q3_currencyOK(job, {}, config, 'B').pass).toBe(true);
-  });
-});
-
-/* ── Q4 visa (Track B only) ─────────────────────────────────── */
-
-describe('Q4: visa/relocation (Track B)', () => {
-  it('Track A skips', () => {
-    expect(q4_visaRelocation({ description_text: '' }, 'A').pass).toBe(true);
-  });
-  it('Track B passes when visa sponsorship is mentioned', () => {
-    expect(q4_visaRelocation({ description_text: 'We offer visa sponsorship.' }, 'B').pass).toBe(true);
-  });
-  it('Track B rejects when nothing relevant is mentioned', () => {
-    expect(q4_visaRelocation({ description_text: 'Great team.' }, 'B').pass).toBe(false);
-  });
-});
+/* ── Q3 / Q4 removed ────────────────────────────────────────
+ *
+ * Currency (old Q3) is now enforced inside gate2_payMinimum — we only
+ * care about currency when we can *see* a pay number. No stated pay ⇒
+ * no currency to check. See tests/pay-check.test.js and
+ * tests/gate2-pay.test.js.
+ *
+ * Visa/relocation (old Q4) is removed with Track B. The priority-gate
+ * design requires remote-from-Nigeria (gate 1); visa sponsorship is not
+ * a path the applicant wants.
+ *
+ * The q3/q4 back-compat exports are no-op stubs — they always return
+ * pass:true so any straggling caller does not accidentally block a job.
+ */
 
 /* ── Q5 not previously contacted ────────────────────────────── */
 

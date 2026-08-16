@@ -2,7 +2,12 @@
 # Copy to config.yaml and edit. Everything tunable without code changes.
 # Validated against src/pipeline/config/schema.js on load.
 
-tracks_enabled: [A]           # A = remote/USD/EUR/GBP. Add B for visa/relocation.
+tracks_enabled: [A]           # A = remote-from-Nigeria. Track B (visa) is deprecated.
+
+# ── Priority gates (evaluated in order; first fail short-circuits) ──
+gates:
+  pay_minimum_annual: 24000   # USD/EUR/GBP; unstated salary passes through
+  max_posting_age_days: 30    # closer date scores higher within the window
 
 # ── Stack fit (Q1 filter) ──────────────────────────────────────
 stack:

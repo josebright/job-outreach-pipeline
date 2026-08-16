@@ -109,7 +109,7 @@ describe('runQualify: end-to-end', () => {
       expect(stats.needsReview).toBe(1);
       const job = jobById(1);
       expect(job.status).toBe('needs_review');
-      expect(job.disqualify_reason).toBe('location_ambiguous');
+      expect(job.disqualify_reason).toBe('remote_ambiguous');
     });
   });
 

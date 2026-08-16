@@ -29,12 +29,21 @@ const scoringSchema = z.object({
   threshold: z.number().int().min(0).max(100).default(40),
   weights: z.object({
     nigeria_presence: z.number().default(30),
-    explicit_salary: z.number().default(15),
-    remote_worldwide: z.number().default(15),
-    recent_post_days: z.number().default(15),
+    // Signals that used to live here are now hard gates:
+    //   explicit_salary → gate2_payMinimum
+    //   remote_worldwide → gate1_remoteFromNigeria
+    //   recent_post_days → gate6_recentPosting
+    // Kept for backward-compat with older config.yaml files (accepted
+    // but no longer read by score.js).
+    explicit_salary: z.number().default(15).optional(),
+    remote_worldwide: z.number().default(15).optional(),
+    recent_post_days: z.number().default(15).optional(),
+    // Sliding-scale refinements applied on top of the hard gates:
+    pay_amount_bonus: z.number().default(15),          // higher pay → more points
+    recency_bonus:    z.number().default(15),          // fresher post → more points
     stack_overlap: z.number().default(10),
-    company_size_sweet_spot: z.number().default(20),   // was 10; boosted for small startups
-    seed_stage_bonus: z.number().default(5),           // extra for 11-50 (founder-read email)
+    company_size_sweet_spot: z.number().default(20),
+    seed_stage_bonus: z.number().default(5),
     eor_mention: z.number().default(5),
   }),
   // Hard filter: companies at or above this size band are dropped after
@@ -102,8 +111,24 @@ const discoverSchema = z.object({
   seed_csv_path: z.string().optional(),
 });
 
+// Hard gates that a job must pass, applied in priority order at qualify
+// time. First failed gate short-circuits the rest.
+const gatesSchema = z.object({
+  // Gate 2: minimum annual pay in USD/EUR/GBP. Only enforced when the
+  // posting explicitly states a salary; unstated pay passes through
+  // (small startups often don't disclose, and rejecting them all wipes
+  // out most of the supply). 24000 = $2k/mo floor.
+  pay_minimum_annual: z.number().nonnegative().default(24000),
+  // Gate 6: reject postings older than this many days. Closer date
+  // also scores higher (recency_bonus in scoring).
+  max_posting_age_days: z.number().int().positive().default(30),
+});
+
 export const configSchema = z.object({
+  // Track A = remote-from-Nigeria (no visa needed). Track B is deprecated;
+  // the priority-gate design does not support visa-only paths.
   tracks_enabled: z.array(trackSchema).min(1).default(['A']),
+  gates: gatesSchema.default({}),
   stack: stackSchema,
   location: locationSchema,
   currency: currencySchema,

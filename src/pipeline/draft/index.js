@@ -10,7 +10,7 @@ import { charge, usage } from '../enrich/cost-guard.js';
 import { loadProfile } from './profile.js';
 import { generateDraft } from './llm.js';
 import { verifyHookEvidence } from './hook-verify.js';
-import { q1_roleMatches, q6_companySizeOK } from '../qualify/filters.js';
+import { gate3_skillsetMatch, gate4_companySize } from '../qualify/filters.js';
 import { companyEnrich, employeesToBand } from '../enrich/hunter.js';
 import { logger } from '../util/logger.js';
 
@@ -79,7 +79,7 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     // an Anthropic credit. Catches drift where the ATS changed the job
     // title between the last qualify pass and now, plus any bug in Q1
     // itself. Pick the first job whose title still passes Q1.
-    const topJob = qualifiedJobs.find(j => q1_roleMatches(j, config).pass);
+    const topJob = qualifiedJobs.find(j => gate3_skillsetMatch(j, config).pass);
     if (!topJob) {
       stats.skippedBadTitle++;
       logger.warn({
@@ -111,7 +111,7 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
         } catch { /* non-fatal */ }
       }
     }
-    const q6 = q6_companySizeOK(company, config);
+    const q6 = gate4_companySize(company, config);
     if (!q6.pass) {
       stats.skippedTooBig++;
       logger.info({ companyId: company.id, band: company.size_band }, 'draft: company too big, skipping');

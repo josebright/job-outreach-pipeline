@@ -21,9 +21,19 @@ const AMOUNT_RE =
   /(?:(\$|€|£)|\b(USD|EUR|GBP)\b)\s*([\d]{1,3}(?:[,][\d]{3})+|[\d]+)\s*([kK])?(?:\s*(?:\/|per\s)\s*(hour|hr|month|mo|year|yr|annum))?/gi;
 
 /**
+ * @param {object} args
+ * @param {number} [args.minPlausibleAnnual=20000]
+ *   Amounts below this are treated as noise (signing bonus, stipend, etc.)
+ *   and dropped. Callers who want to detect legitimately-low salaries
+ *   (below-floor jobs at $12k/yr etc.) should lower this — the pay-check
+ *   gate does exactly that.
  * @returns {{ annual:number, monthly:number, currency:string }|null}
  */
-export function extractAnnualSalary({ compRaw, descriptionText, acceptedCurrencies = ['USD', 'EUR', 'GBP'] }) {
+export function extractAnnualSalary({
+  compRaw, descriptionText,
+  acceptedCurrencies = ['USD', 'EUR', 'GBP'],
+  minPlausibleAnnual = 20_000,
+}) {
   const buckets = [];
   for (const text of [compRaw, descriptionText]) {
     if (!text) continue;
@@ -39,7 +49,11 @@ export function extractAnnualSalary({ compRaw, descriptionText, acceptedCurrenci
       const value = kSuffix ? rawNum * 1000 : rawNum;
 
       const annual = periodToAnnual(value, period);
-      if (annual >= 20_000 && annual <= 1_000_000) {   // filter noise
+      // Keep an amount if it clears the noise floor OR if the period is
+      // explicit (an explicit "/month" or "/year" is not noise — it's
+      // structurally a salary quote, however low).
+      const isExplicit = Boolean(period);
+      if (annual <= 1_000_000 && (annual >= minPlausibleAnnual || isExplicit)) {
         buckets.push({ annual, currency });
       }
     }

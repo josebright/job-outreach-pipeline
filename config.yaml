@@ -2,7 +2,19 @@
 # Copy to config.yaml and edit. Everything tunable without code changes.
 # Validated against src/pipeline/config/schema.js on load.
 
-tracks_enabled: [A, B]        # A = remote/USD/EUR/GBP (primary). B = onsite/hybrid with visa sponsorship (secondary).
+tracks_enabled: [A]           # A = remote-from-Nigeria (no visa needed). Track B removed per priority-gate design.
+
+# ── Priority gates (evaluated in order; first fail short-circuits) ──
+# 1. Remote-from-Nigeria  → location
+# 2. Pay ≥ minimum        → gates.pay_minimum_annual (below)
+# 3. Skillset match       → stack (below)
+# 4. Company size 2-500   → scoring.reject_size_bands (below)
+# 5. Not previously contacted (90 days)
+# 6. Posting freshness    → gates.max_posting_age_days (below)
+# 7. Have contact email   (checked at draft time, not qualify)
+gates:
+  pay_minimum_annual: 24000   # USD/EUR/GBP; unstated salary passes through
+  max_posting_age_days: 30    # closer date scores higher within the window
 
 # ── Stack fit (Q1 filter) ──────────────────────────────────────
 stack:
