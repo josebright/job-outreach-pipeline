@@ -14,10 +14,14 @@ import { domainSearch, emailVerifier as hunterVerifier, mapHunterStatus } from '
 // Alias so both usages in this file (Hunter primary + posting-scrape verify) read cleanly.
 const emailVerifier = hunterVerifier;
 import { charge, usage } from './cost-guard.js';
-import { targetHintsFor, titleMatches } from './target.js';
+import { queriesFor, rankPerson, roleTypeForTitle, isSmallCo } from './target.js';
 import { contactsFromPosting, roleTypeFromLocalPart } from './from-posting.js';
+import { guessDomain } from './domain-guess.js';
 
 const PROVIDER = 'hunter';
+
+// Local parts we never accept even as a last-resort fallback.
+const NO_REPLY = new Set(['noreply', 'no-reply', 'donotreply', 'do-not-reply']);
 
 /**
  * Run enrichment against all qualified companies, in company.score order.
@@ -49,32 +53,50 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
 
   for (const company of companies) {
     if (contactCountForCompany(company.id) > 0) continue;      // already enriched
-    const domain = deriveDomain(company);
+    let domain = deriveDomain(company);
+    if (!domain) {
+      // Try a cheap DNS-based guess from the company slug/name before giving up.
+      const guessed = await guessDomain(company).catch(() => null);
+      if (guessed) {
+        domain = guessed;
+        try {
+          getDb().prepare(`UPDATE company SET website = ?, updated_at = datetime('now') WHERE id = ?`)
+            .run(`https://${guessed}`, company.id);
+        } catch { /* non-fatal */ }
+      }
+    }
     if (!domain) { stats.skippedNoDomain++; continue; }
 
     try {
       // Charge 1 credit per domain-search call up front (Hunter says
       // 1 credit per 10 results; we're approximating).
       charge(PROVIDER, 1, budget);
-      const hints = targetHintsFor(company);
-      const uniqueEmails = new Map();
+      const small = isSmallCo(company);
+      const pool = new Map();          // email -> emailData (top rank wins)
 
-      for (const hint of hints) {
-        const res = await domainSearch({
-          domain,
-          seniority: hint.seniority,
-          department: hint.department,
-          limit: 10,
-        });
+      for (const q of queriesFor(company)) {
+        const res = await domainSearch({ domain, ...q });
         for (const e of res.emails || []) {
           if (!e.value) continue;
-          if (!titleMatches(e.position, hint.titleAny) && hint.titleAny?.length) continue;
-          if (!uniqueEmails.has(e.value.toLowerCase())) {
-            uniqueEmails.set(e.value.toLowerCase(), { emailData: e, roleType: hint.roleType });
+          const key = e.value.toLowerCase();
+          const score = rankPerson(e, { isSmall: small });
+          const existing = pool.get(key);
+          if (!existing || score > existing._rank) {
+            pool.set(key, { ...e, _rank: score });
           }
-          if (uniqueEmails.size >= 3) break;
         }
-        if (uniqueEmails.size >= 3) break;
+        // If we already have plenty of high-rank hits, stop paying for more queries.
+        if ([...pool.values()].filter(p => p._rank >= 60).length >= 3) break;
+      }
+
+      // Rank and keep top 3.
+      const uniqueEmails = new Map();
+      const ranked = [...pool.values()].sort((a, b) => b._rank - a._rank).slice(0, 3);
+      for (const e of ranked) {
+        uniqueEmails.set(e.value.toLowerCase(), {
+          emailData: e,
+          roleType: roleTypeForTitle(e.position),
+        });
       }
 
       // Verify + persist up to 3 contacts.
@@ -119,16 +141,19 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
       // Fallback: if Hunter yielded no contact, scan the company's job
       // postings for emails that appear in the text itself. Every candidate
       // is Hunter-verified before storing so we never send to an unverified
-      // address (QA 2.4).
-      if (uniqueEmails.size === 0) {
+      // address (QA 2.4). Semi-generic addresses (founders@, team@,
+      // engineering@) are accepted; pure noise (noreply@) is not.
+      if (contactCountForCompany(company.id) === 0) {
         const jobs = getDb().prepare(
           `SELECT description_text FROM job WHERE company_id = ? AND description_text IS NOT NULL LIMIT 20`
         ).all(company.id);
         outer: for (const j of jobs) {
           const found = contactsFromPosting({ descriptionText: j.description_text, companyDomainHint: domain });
-          for (const c of found) {
-            if (c.quality === 'generic') continue;
-            // Verify with Hunter before storing. Charge one credit per verification.
+          // Try named + semi-generic first; only fall to generic if nothing else.
+          const candidates = found.filter(c => c.quality !== 'generic').concat(
+            found.filter(c => c.quality === 'generic' && !NO_REPLY.has(c.local))
+          );
+          for (const c of candidates) {
             try { charge(PROVIDER, 1, budget); }
             catch (err) {
               if (err.name === 'BudgetExceededError') {
@@ -146,7 +171,7 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
               title: null,
               roleType: roleTypeFromLocalPart(c.local),
               email: c.email,
-              emailStatus: v.status,                // 'verified' or 'risky'
+              emailStatus: v.status,
               source: 'posting_scrape',
               raw: { local: c.local, domain: c.domain, quality: c.quality, verification: v.raw },
             });

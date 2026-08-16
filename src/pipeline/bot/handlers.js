@@ -199,18 +199,52 @@ export async function handleRun() {
     stats.qualify  = await runQualify({ config });
     stats.enrich   = await runEnrich({ config });
     stats.draft    = await runDraft({ config });
+
+    // If nothing came out of draft, take another swing: re-enrich all
+    // qualified companies (including ones that already had contacts skipped
+    // for lack of a qualified job earlier), then re-draft. Cheap because
+    // enrich's per-company guard prevents duplicate Hunter calls when a
+    // contact already exists.
+    if ((stats.draft?.draftsCreated || 0) === 0) {
+      logger.warn('run: 0 drafts produced, retrying enrich + draft once more');
+      const enrich2 = await runEnrich({ config });
+      const draft2  = await runDraft({ config });
+      stats.enrich = mergeStats(stats.enrich, enrich2);
+      stats.draft  = mergeStats(stats.draft, draft2);
+    }
   } catch (err) {
     logger.error({ err: err.message }, 'run pipeline failed');
     return `Pipeline run failed: ${escapeHtml(err.message)}`;
   }
-  return [
+  const drafts = stats.draft?.draftsCreated || 0;
+  const lines = [
     '<b>Pipeline run complete</b>',
     `discover: ${JSON.stringify(stats.discover || {})}`,
     `ingest:   ${JSON.stringify(stats.ingest || {})}`,
     `qualify:  ${JSON.stringify(stats.qualify || {})}`,
     `enrich:   ${JSON.stringify(stats.enrich || {})}`,
     `draft:    ${JSON.stringify(stats.draft || {})}`,
-  ].join('\n');
+  ];
+  if (drafts === 0) {
+    lines.push('',
+      '<b>No drafts produced.</b> Hunter returned no usable contacts for any qualified company on this pass. ' +
+      'Try /addcompany with a specific LinkedIn URL, or wait for the next discovery cycle.');
+  } else {
+    lines.push('', `Use /list to review the ${drafts} new draft(s).`);
+  }
+  return lines.join('\n');
+}
+
+function mergeStats(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const out = { ...a };
+  for (const k of Object.keys(b)) {
+    if (typeof b[k] === 'number') out[k] = (out[k] || 0) + b[k];
+    else if (typeof b[k] === 'boolean') out[k] = out[k] || b[k];
+    else out[k] = b[k];
+  }
+  return out;
 }
 
 /* ── /replace: reject + regenerate for the same contact+job ─ */
