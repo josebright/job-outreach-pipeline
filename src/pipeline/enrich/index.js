@@ -84,6 +84,24 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
         // still fall through to companies/find + posting-scrape below
       }
 
+      // 0b. High-count company-size floor. Hunter's email index is
+      // (roughly) a lower bound on employee count — if they have 250+
+      // emails on the domain, the company almost certainly has more than
+      // 500 employees. Overrides whatever companies/find later says (which
+      // is often stale for large companies). Fixes the Affirm/Algolia/
+      // Snowflake/Airtable leak class.
+      if (count.total !== null && count.total >= 250) {
+        const derivedBand = count.total >= 800 ? '1000+' : '501-1000';
+        updateCompanyEnrichment(company.id, {
+          sizeBand: derivedBand, sizeBandSource: 'hunter', overwriteSize: true,
+        });
+        company.size_band = derivedBand;
+        company.size_band_source = 'hunter';
+        logger.info({ companyId: company.id, domain, emailCount: count.total, derivedBand },
+          'enrich: email-count floor set company to >500');
+        stats.sizeFlooredByEmailCount = (stats.sizeFlooredByEmailCount || 0) + 1;
+      }
+
       // 1. Company enrichment: cheap way to backfill missing size_band /
       // hq_country / industry. Only fire it when we're actually missing
       // one of those — no point spending a credit if the seed CSV already

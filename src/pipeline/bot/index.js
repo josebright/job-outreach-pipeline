@@ -10,6 +10,7 @@ import {
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
   handleDiag, handleSetSize,
+  handleSuppress, handleUnblock, handleSuppressed,
 } from './handlers.js';
 
 let running = null;
@@ -99,6 +100,13 @@ export function startBot() {
     const [slug, band] = argsOf(ctx);
     ctx.replyWithHTML(handleSetSize(slug, band));
   });
+
+  bot.command('suppress', (ctx) => {
+    const [slug, ...rest] = argsOf(ctx);
+    ctx.replyWithHTML(handleSuppress(slug, rest.join(' ')));
+  });
+  bot.command('unblock', (ctx) => ctx.replyWithHTML(handleUnblock(argOf(ctx))));
+  bot.command('suppressed', (ctx) => ctx.replyWithHTML(handleSuppressed()));
 
   bot.command('addcompany', async (ctx) => {
     const text = ctx.message?.text || '';

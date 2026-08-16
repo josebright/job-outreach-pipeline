@@ -6,6 +6,7 @@ import {
   contactsByCompany, jobsByCompany, existingDraftFor,
   updateDraftStatus, createDraft,
   companyBySlug, setCompanySizeManual,
+  suppressCompany, unsuppressCompany, isCompanySuppressed, listSuppressedCompanies,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
@@ -116,7 +117,53 @@ export function handleReject(id, reason) {
   const d = draftById(Number(id));
   if (!d) return `Draft ${id} not found.`;
   updateDraftStatus(d.id, 'rejected', { reason: reason || 'via telegram' });
-  return `Draft ${d.id} rejected: ${escapeHtml(reason || 'no reason given')}`;
+
+  // Auto-suppress if the reason indicates the company itself is wrong
+  // (too big, too small, wrong industry). Prevents the same company
+  // from re-appearing in the next /run cycle via any aggregator.
+  const shouldSuppress = /\b(too\s*big|too\s*large|too\s*small|wrong\s*(size|industry|role))\b/i
+    .test(reason || '');
+  let extra = '';
+  if (shouldSuppress) {
+    const contact = contactById(d.contact_id);
+    const companyId = contact?.company_id;
+    if (companyId) {
+      suppressCompany(companyId, `auto-suppressed on /reject: ${reason}`);
+      const co = companyById(companyId);
+      extra = `\n<b>Auto-suppressed ${escapeHtml(co?.name || '?')}</b> — future /run cycles will skip it.`;
+    }
+  }
+  return `Draft ${d.id} rejected: ${escapeHtml(reason || 'no reason given')}${extra}`;
+}
+
+/* ── /suppress + /unblock + /suppressed: company blocklist ── */
+
+export function handleSuppress(slug, reason) {
+  if (!slug) return 'Usage: /suppress &lt;slug&gt; [reason]';
+  const c = companyBySlug(slug);
+  if (!c) return `No company with slug "${escapeHtml(slug)}".`;
+  if (isCompanySuppressed(c.id)) return `${escapeHtml(c.name)} is already suppressed.`;
+  suppressCompany(c.id, reason || 'via /suppress');
+  return `Suppressed <b>${escapeHtml(c.name)}</b> (${escapeHtml(c.slug)}). No future drafts will be generated for this company.`;
+}
+
+export function handleUnblock(slug) {
+  if (!slug) return 'Usage: /unblock &lt;slug&gt;';
+  const c = companyBySlug(slug);
+  if (!c) return `No company with slug "${escapeHtml(slug)}".`;
+  if (!isCompanySuppressed(c.id)) return `${escapeHtml(c.name)} is not suppressed.`;
+  unsuppressCompany(c.id);
+  return `Unblocked <b>${escapeHtml(c.name)}</b>. It can produce drafts again.`;
+}
+
+export function handleSuppressed() {
+  const rows = listSuppressedCompanies();
+  if (rows.length === 0) return 'No suppressed companies.';
+  const lines = ['<b>Suppressed companies</b>', ''];
+  for (const r of rows) {
+    lines.push(`  ${escapeHtml(r.name)} (${escapeHtml(r.slug)}) — ${escapeHtml(r.reason || 'no reason')}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -282,6 +329,9 @@ export function handleHelp() {
     '/draft &lt;company-slug&gt; — force-draft against a company by slug',
     '/addcompany &lt;linkedin-url | ats-url | name slug ats&gt; — add a company manually',
     '/setsize &lt;slug&gt; &lt;band&gt; — manual size override (e.g. /setsize affirm 1000+)',
+    '/suppress &lt;slug&gt; [reason] — permanently blocklist a company',
+    '/unblock &lt;slug&gt; — remove a company from the blocklist',
+    '/suppressed — list all suppressed companies',
     '/status — pipeline funnel snapshot',
     '/diag — deep pipeline diagnostic (pool composition, budgets)',
     '/whoami — show your Telegram chat id (for env config)',

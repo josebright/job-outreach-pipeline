@@ -144,6 +144,38 @@ export function companyBySlug(slug) {
   return getDb().prepare('SELECT * FROM company WHERE slug = ? LIMIT 1').get(String(slug || '').toLowerCase());
 }
 
+/* ── company suppression (migration 004) ───────────────────── */
+
+export function suppressCompany(id, reason = null) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO company_suppression (company_id, reason)
+    VALUES (?, ?)
+    ON CONFLICT (company_id) DO UPDATE SET reason = excluded.reason
+  `).run(id, reason);
+  recordEvent({ entity: 'company', entityId: id, event: 'suppressed', detail: { reason } });
+}
+
+export function unsuppressCompany(id) {
+  const db = getDb();
+  db.prepare('DELETE FROM company_suppression WHERE company_id = ?').run(id);
+  recordEvent({ entity: 'company', entityId: id, event: 'unsuppressed' });
+}
+
+export function isCompanySuppressed(id) {
+  const row = getDb().prepare('SELECT 1 FROM company_suppression WHERE company_id = ?').get(id);
+  return Boolean(row);
+}
+
+export function listSuppressedCompanies() {
+  return getDb().prepare(`
+    SELECT co.id, co.name, co.slug, cs.reason, cs.suppressed_at
+    FROM company_suppression cs
+    JOIN company co ON co.id = cs.company_id
+    ORDER BY cs.suppressed_at DESC
+  `).all();
+}
+
 /* ── job ────────────────────────────────────────────────────── */
 
 export function upsertJob({

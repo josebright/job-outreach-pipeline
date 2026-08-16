@@ -17,6 +17,7 @@
 import {
   jobsByStatus, companyById, wasCompanyContactedRecently,
   setJobQualifyResult, refreshCompanyScore, setCompanyStatus,
+  isCompanySuppressed,
 } from '../db/repo.js';
 import {
   gate1_remoteFromNigeria, gate2_payMinimum, gate3_skillsetMatch,
@@ -42,6 +43,18 @@ export async function runQualify({ config } = {}) {
         status: 'disqualified', score: 0, disqualifyReason: 'no_company_row',
       });
       stats.disqualified++;
+      continue;
+    }
+
+    // Gate 0: applicant-declared suppression. Highest priority — anything
+    // on the manual/auto blocklist is dropped before any other check.
+    // Handles the "Hunter/YC keep re-appearing wrong data" class of leaks.
+    if (isCompanySuppressed(company.id)) {
+      setJobQualifyResult(job.id, {
+        status: 'disqualified', score: 0, disqualifyReason: 'company_suppressed',
+      });
+      stats.disqualified++;
+      touchedCompanies.add(company.id);
       continue;
     }
 

@@ -77,6 +77,8 @@ const REJECT_ROLE_MARKERS = [
 
   // Other adjacent specialties
   'firmware engineer', 'hardware engineer', 'embedded engineer',
+  'flight software', 'flight engineer', 'avionics', 'spacecraft',
+  'quantum engineer', 'quantum software',
   'qa engineer', 'quality engineer', 'test engineer', 'sdet',
   'sales engineer', 'solutions engineer', 'support engineer',
   'network engineer', 'systems engineer', 'system engineer',
@@ -160,6 +162,26 @@ export function gate2_payMinimum(job, config) {
   return { pass: false, reason: `pay_wrong_currency:${result.currency}` };
 }
 
+// Accepted specializations that may appear *after* a comma or dash in
+// the title (e.g. "Software Engineer, Backend" or "Software Engineer -
+// Booking Platform"). Anything else in the suffix position is rejected
+// — the reject-list approach is too permissive because ATS titles use
+// endless variations ("Cortex Quality", "Understanding", "Flight
+// Software", "Cortex AI"...). A closed whitelist is fail-safe.
+//
+// Match rule: the specialization suffix must START WITH one of these
+// tokens. So "Backend - Booking Platform" starts with "backend" → ok.
+// "Understanding" doesn't start with any → reject.
+const ACCEPTED_SPECIALIZATIONS = [
+  'backend', 'back-end', 'back end',
+  'frontend', 'front-end', 'front end',
+  'fullstack', 'full-stack', 'full stack',
+  'product', 'product backend', 'product frontend', 'product engineering',
+  'api', 'apis', 'api platform',
+  'web', 'mobile', 'ios', 'android',
+  'core',   // "Software Engineer, Core Platform" is common at small co's
+];
+
 /* ─── Gate 3: Skillset match ───────────────────────────────── */
 
 /**
@@ -180,6 +202,20 @@ export function gate3_skillsetMatch(job, config) {
   if (!titleHasRole) return { pass: false, reason: 'title_not_engineering' };
   const isReject = REJECT_ROLE_MARKERS.some(m => title.includes(m));
   if (isReject) return { pass: false, reason: 'title_role_out_of_scope' };
+
+  // Whitelist for comma/dash-suffix specializations. If the title has a
+  // specialization after "Software Engineer, X" or "Software Engineer - X",
+  // that X must be an accepted specialization. Prevents endless whack-a-
+  // mole with "Software Engineer, {any-team-name-at-any-company}".
+  const spec = extractSpecialization(job.title || '');
+  if (spec) {
+    const specLower = spec.toLowerCase();
+    const accepted = ACCEPTED_SPECIALIZATIONS.some(a =>
+      specLower === a || specLower.startsWith(a + ' ') || specLower.startsWith(a + ',') ||
+      specLower.startsWith(a + '-') || specLower.startsWith(a + '(')
+    );
+    if (!accepted) return { pass: false, reason: `spec_not_accepted:${spec.slice(0, 40)}` };
+  }
 
   const hasStackKeyword = keywords.some(k => text.includes(norm(k)));
   if (!hasStackKeyword) return { pass: false, reason: 'no_stack_keyword_match' };
@@ -256,6 +292,29 @@ export function gate6_recentPosting(job, config) {
 }
 
 /* ─── Utilities ────────────────────────────────────────────── */
+
+/**
+ * Extract the specialization suffix from a job title. Returns null when
+ * the title has no suffix.
+ *   "Senior Software Engineer, Understanding"   → "Understanding"
+ *   "Software Engineer - Auth"                  → "Auth"
+ *   "Backend Engineer (Europe/UK timezone)"     → null (parens stripped, no separator)
+ *   "Full-Stack Engineer"                       → null (hyphen inside a word)
+ *   "Software Engineer, Product Backend (4-8)"  → "Product Backend"
+ *
+ * Exported for tests.
+ */
+export function extractSpecialization(title) {
+  if (!title) return null;
+  // Strip trailing parentheticals ("(4-8 YOE)", "(Remote)", etc.)
+  const cleaned = String(title).replace(/\s*\([^)]*\)\s*$/, '').trim();
+  // Split on ", " OR " - " OR " – " OR " — ". The spaces around dashes
+  // ensure we don't split on hyphens inside compound words like
+  // "Full-Stack" or "Back-End".
+  const m = cleaned.match(/^(.*?)(?:,\s+|\s+[-–—]\s+)(.+)$/);
+  if (!m) return null;
+  return m[2].trim() || null;
+}
 
 function wordBoundary(haystack, needle) {
   if (!needle) return false;

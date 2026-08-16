@@ -5,13 +5,14 @@
 import {
   companiesByStatus, contactsByCompany, jobsByCompany,
   createDraft, existingDraftFor, updateCompanyEnrichment,
+  isCompanySuppressed,
 } from '../db/repo.js';
 import { charge, usage } from '../enrich/cost-guard.js';
 import { loadProfile } from './profile.js';
 import { generateDraft } from './llm.js';
 import { verifyHookEvidence } from './hook-verify.js';
 import { gate3_skillsetMatch, gate4_companySize } from '../qualify/filters.js';
-import { companyEnrich, employeesToBand } from '../enrich/hunter.js';
+import { companyEnrich, employeesToBand, emailCount } from '../enrich/hunter.js';
 import { logger } from '../util/logger.js';
 
 // Re-export so existing tests importing from draft/index.js still work.
@@ -66,6 +67,14 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
   for (const company of companies) {
     stats.companiesConsidered++;
 
+    // Belt+suspenders: qualify already skips suppressed companies, but
+    // check here too. Prevents a race where /suppress ran after qualify
+    // but before this draft pass.
+    if (isCompanySuppressed(company.id)) {
+      stats.skippedSuppressed = (stats.skippedSuppressed || 0) + 1;
+      continue;
+    }
+
     const contacts = contactsByCompany(company.id)
       .filter(c => c.email_status !== 'invalid');
     if (contacts.length === 0) { stats.skippedNoContact++; continue; }
@@ -101,17 +110,23 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       ).hostname.replace(/^www\./, '') : null;
       if (domain) {
         try {
-          const info = await companyEnrich({ domain });
-          if (info) {
-            const band = employeesToBand(info.employeesEstimate);
-            if (band) {
-              // overwriteSize: force a fresh value over the stale one.
-              updateCompanyEnrichment(company.id, {
-                sizeBand: band, sizeBandSource: 'hunter', overwriteSize: true,
-              });
-              company.size_band = band;
-              company.size_band_source = 'hunter';
-            }
+          // Prefer email-count as a size floor (deterministic; free) —
+          // companies/find is often stale for large companies. If either
+          // signal says "too big", use it.
+          const [info, count] = await Promise.all([
+            companyEnrich({ domain }).catch(() => null),
+            emailCount({ domain }).catch(() => ({ total: null })),
+          ]);
+          let band = info ? employeesToBand(info.employeesEstimate) : null;
+          if (count.total !== null && count.total >= 250) {
+            band = count.total >= 800 ? '1000+' : '501-1000';
+          }
+          if (band) {
+            updateCompanyEnrichment(company.id, {
+              sizeBand: band, sizeBandSource: 'hunter', overwriteSize: true,
+            });
+            company.size_band = band;
+            company.size_band_source = 'hunter';
           }
         } catch { /* non-fatal */ }
       }
