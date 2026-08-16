@@ -237,7 +237,7 @@ describe('Q5: not previously contacted', () => {
 /* ── Q6 company size ────────────────────────────────────────── */
 
 describe('Q6: company size sanity', () => {
-  const cfg = { scoring: { reject_size_bands: ['1000+', '1001-5000', '5001-10000', '10001+', '10000+'] } };
+  const cfg = { scoring: { reject_size_bands: ['501-1000', '1000+', '1001-5000', '5001-10000', '10001+', '10000+'] } };
 
   it('passes when size is unknown', () => {
     expect(q6_companySizeOK({}, cfg).pass).toBe(true);
@@ -254,6 +254,12 @@ describe('Q6: company size sanity', () => {
 
   it('passes for 201-500', () => {
     expect(q6_companySizeOK({ size_band: '201-500' }, cfg).pass).toBe(true);
+  });
+
+  it('rejects 501-1000 (hard ceiling at 500)', () => {
+    const r = q6_companySizeOK({ size_band: '501-1000' }, cfg);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain('company_size_too_large');
   });
 
   it('rejects 1000+', () => {

@@ -46,7 +46,14 @@ export async function runDraft({ config, budgetUsd = 20 } = {}) {
   const model = config.llm.drafts_model;
   const promptVersion = config.llm.prompt_version;
 
-  const companies = companiesByStatus('qualified');
+  // Prioritize small companies (2-100 employees) so the daily draft budget
+  // gets spent on the tier most likely to reply. Mid-size (101-500) and
+  // unknown-size companies come after. Within each tier, higher score wins.
+  const companies = companiesByStatus('qualified').sort((a, b) => {
+    const ta = sizeTier(a.size_band), tb = sizeTier(b.size_band);
+    if (ta !== tb) return ta - tb;
+    return (b.score || 0) - (a.score || 0);
+  });
   for (const company of companies) {
     stats.companiesConsidered++;
 
@@ -117,4 +124,29 @@ export async function runDraft({ config, budgetUsd = 20 } = {}) {
 
   logger.info({ ...stats, budget: usage(PROVIDER, budgetUsd) }, 'draft pass complete');
   return stats;
+}
+
+/**
+ * Draft-ordering tier. Lower tier goes first.
+ *   tier 1: high end of band <= 100     ("2-10", "11-50", "1-50", "51-100")
+ *   tier 2: unknown/null size            (charitable — might be small)
+ *   tier 3: everything else (up to 500)  (Q6 already dropped 501+)
+ *
+ * Exported for tests.
+ */
+export function sizeTier(sizeBand) {
+  const s = String(sizeBand || '').trim().toLowerCase();
+  if (!s) return 2;
+  const m = s.match(/^(\d+)\s*-\s*(\d+)/);
+  if (m) {
+    const hi = Number(m[2]);
+    if (hi <= 100) return 1;
+    return 3;
+  }
+  // Open-ended bands like "51+" — take the low end.
+  const open = s.match(/^(\d+)\s*\+$/);
+  if (open) return Number(open[1]) <= 100 ? 1 : 3;
+  // Words like "small" -> treat as tier 1.
+  if (/small|seed|early/.test(s)) return 1;
+  return 3;
 }

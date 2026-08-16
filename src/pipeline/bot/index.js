@@ -6,7 +6,7 @@ import { env } from '../config/loader.js';
 import { logger } from '../util/logger.js';
 import {
   handleList, handleShow, handlePreview,
-  handleApprove, handleReject, handleMarkReplied,
+  handleApprove, handleReject, handleRejectAll, handleMarkReplied,
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
 } from './handlers.js';
@@ -58,6 +58,10 @@ export function startBot() {
   bot.command('reject',  (ctx) => {
     const [id, ...rest] = argsOf(ctx);
     ctx.replyWithHTML(handleReject(id, rest.join(' ')));
+  });
+  bot.command('rejectall', (ctx) => {
+    const reason = argsOf(ctx).join(' ');
+    ctx.replyWithHTML(handleRejectAll(reason));
   });
   bot.command('replied', (ctx) => ctx.replyWithHTML(handleMarkReplied(argOf(ctx))));
   bot.command('status', async (ctx) => ctx.replyWithHTML(await handleStatus()));

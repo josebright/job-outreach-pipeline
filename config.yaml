@@ -92,7 +92,9 @@ scoring:
   # Hard filter: skip any company at or above these size bands.
   # Enterprise recruiting funnels through ATS + agencies and rarely
   # replies to cold outreach. Backed by 2026 response-rate data.
-  reject_size_bands: ["1000+", "1001-5000", "5001-10000", "10001+", "10000+"]
+  # Hard ceiling: 500 employees. Anything at or above 501 is dropped.
+  # Priority tier (2-100) is enforced separately in runDraft ordering.
+  reject_size_bands: ["501-1000", "1000+", "1001-5000", "5001-10000", "10001+", "10000+"]
 
 # ── Discovery ──────────────────────────────────────────────────
 discover:

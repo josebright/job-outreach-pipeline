@@ -40,7 +40,8 @@ const scoringSchema = z.object({
   // Hard filter: companies at or above this size band are dropped after
   // scoring (Q6). Enterprise recruiting funnels through ATS + agencies
   // and does not respond to direct outreach at meaningful rates.
-  reject_size_bands: z.array(z.string()).default(['1000+', '10000+', '5001-10000']),
+  // Hard ceiling: 500 employees. Anything at or above 501 is dropped in Q6.
+  reject_size_bands: z.array(z.string()).default(['501-1000', '1000+', '10000+', '5001-10000']),
 });
 
 const sendSchema = z.object({

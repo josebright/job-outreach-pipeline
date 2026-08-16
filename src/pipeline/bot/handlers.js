@@ -117,6 +117,28 @@ export function handleReject(id, reason) {
   return `Draft ${d.id} rejected: ${escapeHtml(reason || 'no reason given')}`;
 }
 
+/**
+ * Bulk-reject every pending_review + approved draft. Destructive; the
+ * reason argument is required so this can't fire from a typo. Sent
+ * drafts are never touched (already outbound).
+ */
+export function handleRejectAll(reason) {
+  const trimmed = (reason || '').trim();
+  if (!trimmed) {
+    return 'Usage: /rejectall &lt;reason&gt;\n' +
+           'Reason is required to prevent accidental bulk-rejects.';
+  }
+  const pending  = draftsByStatus('pending_review');
+  const approved = draftsByStatus('approved');
+  const all = [...pending, ...approved];
+  if (all.length === 0) return 'No pending or approved drafts to reject.';
+
+  for (const d of all) {
+    updateDraftStatus(d.id, 'rejected', { reason: `bulk: ${trimmed}` });
+  }
+  return `Rejected ${all.length} draft(s) (${pending.length} pending, ${approved.length} approved). Reason: ${escapeHtml(trimmed)}`;
+}
+
 export function handleMarkReplied(id) {
   const draftId = Number(id);
   const d = draftById(draftId);
@@ -177,6 +199,7 @@ export function handleHelp() {
     '/preview &lt;id&gt; — send preview to your own Gmail',
     '/approve &lt;id&gt; — approve a pending draft',
     '/reject &lt;id&gt; [reason] — reject a pending draft',
+    '/rejectall &lt;reason&gt; — bulk-reject every pending + approved draft',
     '/replace &lt;id&gt; [reason] — reject + regenerate a fresh draft',
     '/replied &lt;id&gt; — manually cancel remaining follow-ups',
     '/send — send all approved drafts now',
