@@ -83,6 +83,11 @@ const llmSchema = z.object({
   classifier_provider: z.enum(['anthropic', 'gemini']).default('gemini'),
   classifier_model: z.string().default('gemini-2.0-flash'),
   prompt_version: z.string().default('outreach_v1'),
+  // Monthly cap on draft-generation calls to the drafts_provider. One
+  // charge per generateDraft() invocation (including SKIPs). Priced as
+  // credit count, not USD — see cost-guard. Default 500 = ~15/day for
+  // 30 days plus headroom for retries.
+  monthly_budget: z.number().nonnegative().default(500),
 });
 
 const discoverSchema = z.object({

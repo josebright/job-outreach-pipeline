@@ -65,28 +65,34 @@ export function roleTypeForTitle(title) {
 }
 
 /**
- * Hunter domain-search query plan, ordered by expected yield for the given
- * company. Executed in order; results are merged & de-duped by email.
- * Kept short (2-3 queries) so we don't chew credits.
+ * Hunter domain-search query plan. Uses Hunter's comma-separated
+ * multi-value params so each query spans multiple depts / seniorities
+ * (Hunter treats comma as OR within a category, AND across categories).
+ * This gets more candidates per credit than firing 4 single-value calls.
+ *
+ * Query design:
+ *   Q1 — always: seniority=executive alone (no dept filter). Captures
+ *        founders/CEO/CTO regardless of which department Hunter tagged
+ *        them under (Hunter sometimes puts founders in "executive"
+ *        department, sometimes "management").
+ *   Q2 — always: department=engineering,human_resources,management
+ *        (no seniority filter). One call catches VP Eng, EM, recruiters,
+ *        Head of People — all the decision makers who read cold email.
+ *   Q3 — fallback ONLY if Q1+Q2 returned nothing usable: unfiltered
+ *        catch-all. Skipped when we already have hits, saving a credit.
+ *
+ * Result: 2 targeted queries in the common case, 3 only when the domain
+ * has data but our first two picks missed it.
  */
 export function queriesFor(company) {
-  const band = String(company?.size_band || '').toLowerCase();
-  const small = /^(1-10|11-50|1-50|2-10|small)$/.test(band) || band === '';
-
-  const queries = [];
-  if (small) {
-    // Small co: try execs first (typically 5-15 total employees in Hunter's
-    // index for a seed-stage company; execs are almost all of them).
-    queries.push({ seniority: 'executive', department: null, limit: 25 });
-    queries.push({ seniority: null, department: 'engineering', limit: 25 });
-  } else {
-    queries.push({ seniority: null, department: 'engineering', limit: 25 });
-    queries.push({ seniority: 'executive', department: 'engineering', limit: 25 });
-  }
-  // Final catch-all so we never leave the domain empty-handed when Hunter
-  // has any data at all.
-  queries.push({ seniority: null, department: null, limit: 25 });
-  return queries;
+  return [
+    // Q1: any exec, any dept. Founders + C-suite.
+    { seniority: 'executive', department: null, limit: 25 },
+    // Q2: decision-maker departments, any seniority. Eng leaders + recruiters.
+    { seniority: null, department: 'engineering,human_resources,management', limit: 25 },
+    // Q3: last-ditch catch-all. Enrich only fires it when Q1+Q2 came up dry.
+    { seniority: null, department: null, limit: 25, _isFallback: true },
+  ];
 }
 
 /**

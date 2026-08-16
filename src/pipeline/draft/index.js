@@ -24,7 +24,12 @@ const PROVIDER = 'anthropic';
  * we still persist the draft but with hook_verified=false so the reviewer
  * sees it flagged.
  */
-export async function runDraft({ config, budgetUsd = 20 } = {}) {
+export async function runDraft({ config, budgetUsd = null } = {}) {
+  // Budget resolution order:
+  //   1. explicit arg (used by tests)
+  //   2. config.llm.monthly_budget
+  //   3. hard fallback of 500
+  const budget = budgetUsd ?? config?.llm?.monthly_budget ?? 500;
   const stats = {
     companiesConsidered: 0,
     draftsCreated: 0,
@@ -74,7 +79,7 @@ export async function runDraft({ config, budgetUsd = 20 } = {}) {
       }
 
       try {
-        charge(PROVIDER, 1, budgetUsd);                    // rough call-count guard
+        charge(PROVIDER, 1, budget);                       // rough call-count guard
       } catch (err) {
         if (err.name === 'BudgetExceededError') {
           stats.budgetExceeded = true;
@@ -122,7 +127,7 @@ export async function runDraft({ config, budgetUsd = 20 } = {}) {
     }
   }
 
-  logger.info({ ...stats, budget: usage(PROVIDER, budgetUsd) }, 'draft pass complete');
+  logger.info({ ...stats, budget: usage(PROVIDER, budget) }, 'draft pass complete');
   return stats;
 }
 

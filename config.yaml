@@ -117,6 +117,7 @@ llm:
   classifier_provider: gemini
   classifier_model: gemini-2.0-flash
   prompt_version: outreach_v1
+  monthly_budget: 500          # cap on generateDraft calls per month; 500 covers ~15/day plus retries
 
 # ── Send ───────────────────────────────────────────────────────
 send:

@@ -84,20 +84,33 @@ describe('isSmallCo', () => {
 });
 
 describe('queriesFor', () => {
-  it('for small companies, execs come first', () => {
+  it('first query targets any-department executives (founders)', () => {
     const qs = queriesFor({ size_band: '11-50' });
     expect(qs[0].seniority).toBe('executive');
+    expect(qs[0].department).toBeNull();
   });
 
-  it('for mid+ companies, engineering department comes first', () => {
-    const qs = queriesFor({ size_band: '201-500' });
-    expect(qs[0].department).toBe('engineering');
-  });
-
-  it('always ends with an unfiltered catch-all so we never leave a domain empty', () => {
+  it('second query combines eng + HR + management via comma-separated multi-value', () => {
     const qs = queriesFor({ size_band: '11-50' });
+    expect(qs[1].seniority).toBeNull();
+    // Hunter treats comma-separated as OR within a category — one call
+    // spans three depts instead of paying three credits.
+    expect(qs[1].department).toContain('engineering');
+    expect(qs[1].department).toContain('human_resources');
+    expect(qs[1].department).toContain('management');
+  });
+
+  it('third query is a marked fallback catch-all', () => {
+    const qs = queriesFor({ size_band: '201-500' });
     const last = qs[qs.length - 1];
     expect(last.seniority).toBeNull();
     expect(last.department).toBeNull();
+    expect(last._isFallback).toBe(true);
+  });
+
+  it('query plan is the same across size tiers (no per-tier duplication)', () => {
+    const small = queriesFor({ size_band: '11-50' });
+    const mid   = queriesFor({ size_band: '201-500' });
+    expect(small.length).toBe(mid.length);
   });
 });

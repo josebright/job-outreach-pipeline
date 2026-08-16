@@ -9,6 +9,7 @@ import {
   handleApprove, handleReject, handleRejectAll, handleMarkReplied,
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
+  handleDiag,
 } from './handlers.js';
 
 let running = null;
@@ -65,6 +66,7 @@ export function startBot() {
   });
   bot.command('replied', (ctx) => ctx.replyWithHTML(handleMarkReplied(argOf(ctx))));
   bot.command('status', async (ctx) => ctx.replyWithHTML(await handleStatus()));
+  bot.command('diag',   async (ctx) => ctx.replyWithHTML(await handleDiag()));
 
   // Async commands (preview + send) can take a few seconds.
   bot.command('preview', async (ctx) => {

@@ -11,6 +11,7 @@ import { recordEvent } from '../db/event-log.js';
 import { sendMessage } from '../send/gmail.js';
 import { runSend } from '../send/index.js';
 import { runReport } from '../report/index.js';
+import { usage } from '../enrich/cost-guard.js';
 import { runDiscover } from '../discover/index.js';
 import { runIngest } from '../ingest/index.js';
 import { runQualify } from '../qualify/index.js';
@@ -173,6 +174,79 @@ export async function handleSend() {
   }
 }
 
+/**
+ * Deep-diagnostic snapshot. Reports the current pool composition so we
+ * can see WHY /run isn't producing drafts — bad supply, empty pool,
+ * budget exhausted, whatever. Read-only; no side effects.
+ */
+export async function handleDiag() {
+  const db = getDb();
+  const config = loadConfig();
+
+  // Company totals by status.
+  const byStatus = db.prepare(`
+    SELECT status, COUNT(*) AS n FROM company GROUP BY status ORDER BY status
+  `).all();
+
+  // Qualified companies broken down by size tier.
+  const qualified = db.prepare(`
+    SELECT COALESCE(size_band, 'unknown') AS band,
+           COUNT(*) AS companies,
+           SUM(CASE WHEN id IN (SELECT company_id FROM contact) THEN 1 ELSE 0 END) AS with_contacts,
+           SUM(CASE WHEN id IN (SELECT company_id FROM job WHERE status = 'qualified') THEN 1 ELSE 0 END) AS with_qual_jobs
+    FROM company
+    WHERE status = 'qualified'
+    GROUP BY band
+    ORDER BY companies DESC
+  `).all();
+
+  // Contact counts by email_status.
+  const contacts = db.prepare(`
+    SELECT email_status, COUNT(*) AS n FROM contact GROUP BY email_status
+  `).all();
+
+  // Draft-eligible pool: qualified companies WITH a qualified job AND >=1 contact.
+  const draftable = db.prepare(`
+    SELECT COUNT(DISTINCT co.id) AS n
+    FROM company co
+    JOIN job j     ON j.company_id  = co.id AND j.status = 'qualified'
+    JOIN contact c ON c.company_id  = co.id AND c.email_status != 'invalid'
+    WHERE co.status = 'qualified'
+  `).get()?.n || 0;
+
+  // Draft status breakdown.
+  const drafts = db.prepare(`
+    SELECT status, COUNT(*) AS n FROM draft GROUP BY status
+  `).all();
+
+  // Budgets this month.
+  const hunterBudget = usage('hunter',   config.enrichment?.monthly_budget ?? 2000);
+  const anthroBudget = usage('anthropic', config.llm?.monthly_budget ?? 500);
+
+  const lines = [
+    '<b>Pipeline diagnostic</b>',
+    '',
+    '<b>Companies by status</b>',
+    ...byStatus.map(r => `  ${r.status.padEnd(14)} ${r.n}`),
+    '',
+    '<b>Qualified companies by size band</b> (contacts / qual-jobs / total)',
+    ...qualified.map(r => `  ${String(r.band).padEnd(12)} ${r.with_contacts} / ${r.with_qual_jobs} / ${r.companies}`),
+    '',
+    `<b>Draft-eligible pool</b> (qualified + qual-job + contact): <b>${draftable}</b>`,
+    '',
+    '<b>Contacts by email status</b>',
+    ...contacts.map(r => `  ${String(r.email_status || 'null').padEnd(10)} ${r.n}`),
+    '',
+    '<b>Drafts by status</b>',
+    ...drafts.map(r => `  ${r.status.padEnd(14)} ${r.n}`),
+    '',
+    '<b>Budgets this month</b>',
+    `  hunter:    ${hunterBudget.units}/${hunterBudget.budget} used (${hunterBudget.remaining} left)`,
+    `  anthropic: ${anthroBudget.units}/${anthroBudget.budget} used (${anthroBudget.remaining} left)`,
+  ];
+  return lines.join('\n');
+}
+
 export async function handleStatus() {
   const config = loadConfig();
   const s = await runReport({ config });
@@ -207,6 +281,7 @@ export function handleHelp() {
     '/draft &lt;company-slug&gt; — force-draft against a company by slug',
     '/addcompany &lt;linkedin-url | ats-url | name slug ats&gt; — add a company manually',
     '/status — pipeline funnel snapshot',
+    '/diag — deep pipeline diagnostic (pool composition, budgets)',
     '/whoami — show your Telegram chat id (for env config)',
   ].join('\n');
 }

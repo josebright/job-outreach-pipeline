@@ -129,7 +129,12 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
       if (hasIndex) {
       charge(PROVIDER, 1, budget);
       for (const q of queriesFor(company)) {
-        const res = await domainSearch({ domain, ...q });
+        // Skip the unfiltered catch-all if we already have hits from
+        // the targeted queries — saves a credit per company that had
+        // any Hunter data at all.
+        if (q._isFallback && pool.size > 0) break;
+        const { _isFallback, ...params } = q;
+        const res = await domainSearch({ domain, ...params });
         // Capture the pattern the first time Hunter returns one — even
         // one indexed person is enough for future email-finder calls.
         if (res.pattern && !company.email_pattern) {
