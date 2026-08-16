@@ -1,17 +1,8 @@
 name,ats,slug,website,hq_country,size_band,nigeria_presence,notes
-Deel,ashby,deel,deel.com,US,1000+,1,Global EOR; hires engineers worldwide including Africa
-Andela,ashby,andela,andela.com,US,501-1000,1,Founded serving African engineers; global remote
-Turing,ashby,turing,turing.com,US,501-1000,1,Global remote developer network with African hires
-Zapier,ashby,zapier,zapier.com,US,501-1000,0,All-remote automation platform
-Vercel,ashby,vercel,vercel.com,US,201-500,0,Remote-first Next.js maker
 Mercury,ashby,mercury,mercury.com,US,201-500,0,Fintech for startups; remote-first
-Ramp,ashby,ramp,ramp.com,US,501-1000,0,Fintech; remote roles
-Notion,ashby,notion,notion.so,US,501-1000,0,Productivity platform; remote-friendly
 Linear,ashby,linear,linear.app,US,51-200,0,Product development tool; remote-friendly
 Perplexity,ashby,perplexity,perplexity.ai,US,51-200,0,AI search; remote-friendly
 Cursor,ashby,cursor,cursor.com,US,51-200,0,AI code editor; remote-friendly
-OpenAI,ashby,openai,openai.com,US,1000+,0,AI research; some remote roles
-Docker,ashby,docker,docker.com,US,201-500,0,All-remote container tooling
 Supabase,ashby,supabase,supabase.com,US,51-200,0,All-remote Postgres platform
 PostHog,ashby,posthog,posthog.com,GB,51-200,0,All-remote product analytics
 Railway,ashby,railway,railway.com,US,11-50,0,Remote-first deployment platform
@@ -19,14 +10,7 @@ Replit,ashby,replit,replit.com,US,51-200,0,Cloud coding platform; remote-friendl
 Modal,ashby,modal,modal.com,US,11-50,0,Serverless AI/data; remote-first
 Browserbase,ashby,browserbase,browserbase.com,US,11-50,0,Headless browser API; remote
 Sanity,ashby,sanity,sanity.io,NO,51-200,0,Norwegian CMS; remote across EU
-Cloudflare,greenhouse,cloudflare,cloudflare.com,US,1000+,0,Many remote engineering roles worldwide
-MongoDB,greenhouse,mongodb,mongodb.com,US,1000+,0,Global remote engineering roles
-Elastic,greenhouse,elastic,elastic.co,US,1000+,0,Distributed; source-available search
-Grafana Labs,greenhouse,grafanalabs,grafana.com,US,501-1000,0,All-remote observability
-Anthropic,greenhouse,anthropic,anthropic.com,US,501-1000,0,AI safety; remote roles for select regions
 Prisma,greenhouse,prisma,prisma.io,DE,51-200,0,Berlin-based; remote-friendly
-Contentful,greenhouse,contentful,contentful.com,DE,501-1000,0,Berlin-based headless CMS; remote-friendly
-Doximity,greenhouse,doximity,doximity.com,US,501-1000,0,Healthtech; remote engineering
 Toggl,workable,toggl,toggl.com,EE,51-200,0,All-remote productivity tools
 Resend,ashby,resend,resend.com,US,11-50,0,Email API for developers; remote-first
 Cal.com,ashby,calcom,cal.com,US,11-50,0,Open-source scheduling; fully distributed

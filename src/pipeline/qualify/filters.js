@@ -88,7 +88,15 @@ const REJECT_ROLE_MARKERS = [
   // Auth / pipeline / ingestion (adjacent SWE roles, not our stack)
   'auth engineer', 'authentication engineer',
   ', auth', ' - auth',
+  'ciam', 'customer identity', 'access management',
   'pipeline engineer', 'ingestion engineer', 'ingestion pipeline',
+
+  // Supply-chain / CI security-adjacent (aligns with security reject)
+  'secure build', 'secure supply chain', 'supply chain security',
+
+  // AI agent framework work (aligns with ai/ml reject — applicant is SWE
+  // not agent-framework builder)
+  ', agent', ' - agent', 'agent engineer', 'agentic',
 
   // Management (applicant is IC, not a hiring manager)
   'engineering manager', 'engineering director', 'director of engineering',

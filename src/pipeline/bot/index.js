@@ -9,7 +9,7 @@ import {
   handleApprove, handleReject, handleRejectAll, handleMarkReplied,
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
-  handleDiag,
+  handleDiag, handleSetSize,
 } from './handlers.js';
 
 let running = null;
@@ -93,6 +93,11 @@ export function startBot() {
     const slug = argOf(ctx);
     await ctx.reply(`Drafting for ${slug || '(no slug)'} …`);
     ctx.replyWithHTML(await handleDraftForSlug(slug));
+  });
+
+  bot.command('setsize', (ctx) => {
+    const [slug, band] = argsOf(ctx);
+    ctx.replyWithHTML(handleSetSize(slug, band));
   });
 
   bot.command('addcompany', async (ctx) => {

@@ -9,7 +9,14 @@ import { recordEvent } from './event-log.js';
 export function upsertCompany({
   name, ats, slug, source,
   hqCountry = null, sizeBand = null, website = null, nigeriaPresence = false,
+  sizeBandSource = null,   // when caller sets a size, they must also
+                           // declare its source ('seed'|'hunter'|'manual')
 }) {
+  // Derive a default source when the seed loader sets a size without
+  // being explicit. Anything upserted with source='seed' whose sizeBand
+  // is populated is trusted seed data.
+  const resolvedSizeSource = sizeBandSource || (sizeBand && source === 'seed' ? 'seed' : null);
+
   const db = getDb();
   const existing = db.prepare(
     'SELECT id, status FROM company WHERE ats = ? AND slug = ?'
@@ -17,22 +24,37 @@ export function upsertCompany({
 
   if (existing) {
     // Backfill non-null fields when re-upserting from a richer source (e.g., seed).
-    db.prepare(`
-      UPDATE company SET
-        hq_country       = COALESCE(?, hq_country),
-        size_band        = COALESCE(?, size_band),
-        website          = COALESCE(?, website),
-        nigeria_presence = CASE WHEN ? = 1 THEN 1 ELSE nigeria_presence END,
-        updated_at       = datetime('now')
-      WHERE id = ?
-    `).run(hqCountry, sizeBand, website, nigeriaPresence ? 1 : 0, existing.id);
+    // Seed re-imports OVERWRITE a Hunter-guessed size — seed always wins.
+    if (sizeBand && resolvedSizeSource === 'seed') {
+      db.prepare(`
+        UPDATE company SET
+          hq_country       = COALESCE(?, hq_country),
+          size_band        = ?,
+          size_band_source = 'seed',
+          website          = COALESCE(?, website),
+          nigeria_presence = CASE WHEN ? = 1 THEN 1 ELSE nigeria_presence END,
+          updated_at       = datetime('now')
+        WHERE id = ?
+      `).run(hqCountry, sizeBand, website, nigeriaPresence ? 1 : 0, existing.id);
+    } else {
+      db.prepare(`
+        UPDATE company SET
+          hq_country       = COALESCE(?, hq_country),
+          size_band        = COALESCE(?, size_band),
+          size_band_source = COALESCE(size_band_source, ?),
+          website          = COALESCE(?, website),
+          nigeria_presence = CASE WHEN ? = 1 THEN 1 ELSE nigeria_presence END,
+          updated_at       = datetime('now')
+        WHERE id = ?
+      `).run(hqCountry, sizeBand, resolvedSizeSource, website, nigeriaPresence ? 1 : 0, existing.id);
+    }
     return { id: existing.id, created: false };
   }
 
   const result = db.prepare(`
-    INSERT INTO company (name, ats, slug, source, hq_country, size_band, website, nigeria_presence)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(name, ats, slug, source, hqCountry, sizeBand, website, nigeriaPresence ? 1 : 0);
+    INSERT INTO company (name, ats, slug, source, hq_country, size_band, size_band_source, website, nigeria_presence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, ats, slug, source, hqCountry, sizeBand, resolvedSizeSource, website, nigeriaPresence ? 1 : 0);
 
   recordEvent({
     entity: 'company',
@@ -72,19 +94,54 @@ export function allCompanySlugs(ats) {
 export function updateCompanyEnrichment(id, {
   sizeBand = null, hqCountry = null, website = null,
   industry = null, linkedinUrl = null, emailPattern = null,
+  sizeBandSource = null,   // 'seed' | 'hunter' | 'manual' — see migration 003
+  overwriteSize = false,   // if true, overwrite even a non-null size_band
+                           // (used for draft-time re-verification when
+                           //  the previous source was 'hunter')
 } = {}) {
+  const db = getDb();
+  if (overwriteSize && sizeBand) {
+    db.prepare(`
+      UPDATE company SET
+        size_band        = ?,
+        size_band_source = COALESCE(?, size_band_source),
+        hq_country       = COALESCE(hq_country, ?),
+        website          = COALESCE(website, ?),
+        industry         = COALESCE(industry, ?),
+        linkedin_url     = COALESCE(linkedin_url, ?),
+        email_pattern    = COALESCE(email_pattern, ?),
+        updated_at       = datetime('now')
+      WHERE id = ?
+    `).run(sizeBand, sizeBandSource, hqCountry, website, industry, linkedinUrl, emailPattern, id);
+    return;
+  }
+  db.prepare(`
+    UPDATE company SET
+      size_band        = COALESCE(size_band, ?),
+      size_band_source = COALESCE(size_band_source, ?),
+      hq_country       = COALESCE(hq_country, ?),
+      website          = COALESCE(website, ?),
+      industry         = COALESCE(industry, ?),
+      linkedin_url     = COALESCE(linkedin_url, ?),
+      email_pattern    = COALESCE(email_pattern, ?),
+      updated_at       = datetime('now')
+    WHERE id = ?
+  `).run(sizeBand, sizeBandSource, hqCountry, website, industry, linkedinUrl, emailPattern, id);
+}
+
+/** Manual override — always wins. Used by the /setsize Telegram command. */
+export function setCompanySizeManual(id, band) {
   const db = getDb();
   db.prepare(`
     UPDATE company SET
-      size_band    = COALESCE(size_band, ?),
-      hq_country   = COALESCE(hq_country, ?),
-      website      = COALESCE(website, ?),
-      industry     = COALESCE(industry, ?),
-      linkedin_url = COALESCE(linkedin_url, ?),
-      email_pattern = COALESCE(email_pattern, ?),
-      updated_at   = datetime('now')
+      size_band = ?, size_band_source = 'manual', updated_at = datetime('now')
     WHERE id = ?
-  `).run(sizeBand, hqCountry, website, industry, linkedinUrl, emailPattern, id);
+  `).run(band, id);
+}
+
+/** Lookup by slug. Used by /setsize + /draft <slug>. */
+export function companyBySlug(slug) {
+  return getDb().prepare('SELECT * FROM company WHERE slug = ? LIMIT 1').get(String(slug || '').toLowerCase());
 }
 
 /* ── job ────────────────────────────────────────────────────── */

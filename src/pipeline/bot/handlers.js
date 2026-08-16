@@ -5,6 +5,7 @@ import {
   draftsByStatus, draftById, contactById, companyById, jobById,
   contactsByCompany, jobsByCompany, existingDraftFor,
   updateDraftStatus, createDraft,
+  companyBySlug, setCompanySizeManual,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
@@ -280,6 +281,7 @@ export function handleHelp() {
     '/run — fire the full pipeline (discover → ingest → qualify → enrich → draft)',
     '/draft &lt;company-slug&gt; — force-draft against a company by slug',
     '/addcompany &lt;linkedin-url | ats-url | name slug ats&gt; — add a company manually',
+    '/setsize &lt;slug&gt; &lt;band&gt; — manual size override (e.g. /setsize affirm 1000+)',
     '/status — pipeline funnel snapshot',
     '/diag — deep pipeline diagnostic (pool composition, budgets)',
     '/whoami — show your Telegram chat id (for env config)',
@@ -398,8 +400,7 @@ export async function handleReplace(id, reason) {
 
 export async function handleDraftForSlug(slug) {
   if (!slug) return 'Usage: /draft &lt;company-slug&gt;';
-  const db = getDb();
-  const company = db.prepare('SELECT * FROM company WHERE slug = ? LIMIT 1').get(String(slug).toLowerCase());
+  const company = companyBySlug(slug);
   if (!company) return `No company with slug "${escapeHtml(slug)}".`;
 
   const contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
@@ -445,6 +446,23 @@ export async function handleDraftForSlug(slug) {
   } catch (err) {
     return `Draft generation failed: ${escapeHtml(err.message)}`;
   }
+}
+
+/* ── /setsize <slug> <band>: manual size override ────────── */
+
+const VALID_BANDS = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'];
+
+export function handleSetSize(slug, band) {
+  if (!slug || !band) {
+    return `Usage: /setsize &lt;slug&gt; &lt;band&gt;\nValid bands: ${VALID_BANDS.join(', ')}`;
+  }
+  if (!VALID_BANDS.includes(band)) {
+    return `Unknown band "${escapeHtml(band)}". Valid: ${VALID_BANDS.join(', ')}`;
+  }
+  const c = companyBySlug(slug);
+  if (!c) return `No company with slug "${escapeHtml(slug)}".`;
+  setCompanySizeManual(c.id, band);
+  return `Set ${escapeHtml(c.name)} size to <b>${band}</b> (manual override — trusted, will not be overwritten by Hunter).`;
 }
 
 /* ── /addcompany <input>: manual company registration ─────── */

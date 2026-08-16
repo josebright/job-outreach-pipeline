@@ -89,12 +89,13 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       continue;
     }
 
-    // Defensive Q6: if the company's size is unknown, ask Hunter's
-    // companies/find one time — 1 credit — to backfill. If the resolved
-    // size is over the ceiling (501+), skip. Prevents drafting to
-    // Affirm / Canonical / Quora-class companies whose size was null
-    // because our discover flow didn't populate it.
-    if (!company.size_band) {
+    // Defensive Q6: verify company size before spending an LLM credit.
+    // Trust source: only 'seed' and 'manual' are trusted. 'hunter' (and
+    // null) must be re-verified via a fresh companies/find call — Hunter's
+    // employee-count field is often 1-2 years stale for larger companies
+    // (Affirm, Algolia, Canonical all cached wrong values previously).
+    const trusted = company.size_band_source === 'seed' || company.size_band_source === 'manual';
+    if (!trusted) {
       const domain = company.website ? new URL(
         company.website.startsWith('http') ? company.website : `https://${company.website}`
       ).hostname.replace(/^www\./, '') : null;
@@ -104,8 +105,12 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
           if (info) {
             const band = employeesToBand(info.employeesEstimate);
             if (band) {
-              updateCompanyEnrichment(company.id, { sizeBand: band });
+              // overwriteSize: force a fresh value over the stale one.
+              updateCompanyEnrichment(company.id, {
+                sizeBand: band, sizeBandSource: 'hunter', overwriteSize: true,
+              });
               company.size_band = band;
+              company.size_band_source = 'hunter';
             }
           }
         } catch { /* non-fatal */ }
@@ -114,7 +119,8 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     const q6 = gate4_companySize(company, config);
     if (!q6.pass) {
       stats.skippedTooBig++;
-      logger.info({ companyId: company.id, band: company.size_band }, 'draft: company too big, skipping');
+      logger.info({ companyId: company.id, band: company.size_band, source: company.size_band_source },
+        'draft: company too big, skipping');
       continue;
     }
 

@@ -95,10 +95,11 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
           if (info) {
             const band = employeesToBand(info.employeesEstimate);
             updateCompanyEnrichment(company.id, {
-              sizeBand:    band,
-              hqCountry:   info.country,
-              industry:    info.industry,
-              linkedinUrl: info.linkedin,
+              sizeBand:       band,
+              sizeBandSource: band ? 'hunter' : null,
+              hqCountry:      info.country,
+              industry:       info.industry,
+              linkedinUrl:    info.linkedin,
             });
             if (band && !company.size_band) stats.sizeBackfilled++;
             // Refresh local copy so downstream ranking sees the new size.
