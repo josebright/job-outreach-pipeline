@@ -107,4 +107,44 @@ describe('addCompanyFromInput', () => {
     const r = await addCompanyFromInput('', { probe: async () => null });
     expect(r.status).toBe('invalid');
   });
+
+  /* ── unsupported URLs (real cases the applicant hit) ────── */
+
+  it('returns "unsupported" with LinkedIn-job-URL guidance for /jobs/view URLs', async () => {
+    const r = await addCompanyFromInput(
+      'https://www.linkedin.com/jobs/view/4447087551/',
+      { probe: async () => null },
+    );
+    expect(r.status).toBe('unsupported');
+    expect(r.message).toMatch(/linkedin.*job.*URL/i);
+    expect(r.message).toMatch(/linkedin\.com\/company/);
+  });
+
+  it('returns "unsupported" with ATS explanation for a direct careers page', async () => {
+    const r = await addCompanyFromInput(
+      'https://herakonlab.com.ng/careers/full-stack-researcher',
+      { probe: async () => null },
+    );
+    expect(r.status).toBe('unsupported');
+    expect(r.message).toMatch(/careers page/i);
+    expect(r.message).toMatch(/greenhouse|lever|ashby/i);
+  });
+
+  it('warns about non-Western TLDs (gate 2 would reject NGN pay)', async () => {
+    const r = await addCompanyFromInput(
+      'https://herakonlab.com.ng/careers/full-stack-researcher',
+      { probe: async () => null },
+    );
+    expect(r.message).toMatch(/gate 2|USD\/EUR\/GBP/);
+  });
+
+  it('LinkedIn company URL not_found message points to careers-page ATS URL', async () => {
+    const r = await addCompanyFromInput(
+      'https://www.linkedin.com/company/topmediaconsulting',
+      { probe: async () => null },
+    );
+    expect(r.status).toBe('not_found');
+    expect(r.message).toMatch(/topmediaconsulting/);
+    expect(r.message).toMatch(/greenhouse.*lever.*ashby/i);
+  });
 });
