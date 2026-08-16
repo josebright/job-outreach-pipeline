@@ -43,6 +43,12 @@ export function scoreJob(job, company, config) {
     breakdown.company_size_sweet_spot = weights.company_size_sweet_spot;
   }
 
+  // Seed-stage bonus: 11-50 range signals a founder- or head-of-eng-read
+  // inbox, which is the applicant's highest-response segment.
+  if (isSeedStageSize(company?.size_band) && weights.seed_stage_bonus) {
+    breakdown.seed_stage_bonus = weights.seed_stage_bonus;
+  }
+
   // EOR / contractor mention in description or comp.
   const eorText = `${job.description_text || ''} ${job.comp_raw || ''}`;
   const hasEor = (config.currency.contractor_signal_words || [])
@@ -75,6 +81,21 @@ function isSweetSpotSize(band) {
     if (lo >= 11 && hi <= 200) return true;
     // Overlap: any part in the 11-200 band, e.g., "50-500" → yes-ish.
     if (lo <= 200 && hi >= 11 && hi - lo <= 300) return true;
+  }
+  return false;
+}
+
+// Seed-stage bracket: 2-50 headcount. Founder or head-of-eng typically
+// reads their own inbox at this size, so responses hit at a higher rate.
+function isSeedStageSize(band) {
+  if (!band) return false;
+  const s = String(band).toLowerCase();
+  if (['2-10', '11-50', '10-50', '1-10', '1-50', '2-50'].some(b => s.includes(b))) return true;
+  const m = s.match(/(\d+)\s*-\s*(\d+)/);
+  if (m) {
+    const lo = Number(m[1]);
+    const hi = Number(m[2]);
+    if (lo >= 1 && hi <= 50) return true;
   }
   return false;
 }

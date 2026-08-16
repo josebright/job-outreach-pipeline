@@ -10,13 +10,19 @@ stack:
     - software engineer
     - backend engineer
     - fullstack engineer
-    - platform engineer
     - node
+    - nodejs
     - python
     - typescript
     - react
-    - automation
-    - api
+    - nestjs
+    - prisma
+    - postgresql
+    - flutter
+    - redis
+    - bullmq
+    - remote
+    - worldwide
   seniority_accept: [senior, staff, principal, lead, sr, sr., "mid-senior"]
   seniority_reject: [intern, internship, junior, jr, graduate, "new grad", entry, entry-level]
   # Junior override: accept a rejected-seniority role if the posting states
@@ -80,8 +86,13 @@ scoring:
     remote_worldwide: 15
     recent_post_days: 15
     stack_overlap: 10
-    company_size_sweet_spot: 10
+    company_size_sweet_spot: 20    # boosted for small startups (11-200)
+    seed_stage_bonus: 5            # extra for 11-50 (founder-read email)
     eor_mention: 5
+  # Hard filter: skip any company at or above these size bands.
+  # Enterprise recruiting funnels through ATS + agencies and rarely
+  # replies to cold outreach.
+  reject_size_bands: ["1000+", "1001-5000", "5001-10000", "10001+", "10000+"]
 
 # ── Discovery ──────────────────────────────────────────────────
 discover:
@@ -111,11 +122,14 @@ send:
   sender_email: bright@capacitydey.org     # change to uchenna@capacitydey.org once alias exists
   sender_name: Uchenna Ugwumadu
   reply_to: uchennaugwumadu8@gmail.com     # remove once mail forwarding is set up on the domain
-  daily_cap_initial: 15
+  daily_cap_initial: 15                 # Mon-Sat weekday cap once warm-up completes
   daily_cap_followup: 15
+  sunday_cap_initial: 3                 # Sunday-specific cap (low signal, spam-prone)
+  research_daily_cap: 2                 # extra bucket for Research Engineer roles; does not eat main cap
   send_window_local_start: "08:30"
   send_window_local_end: "11:00"
   bounce_rate_alarm_pct: 3
-  # Cold-mailbox warm-up. Set to an ISO date (YYYY-MM-DD) to enable the
-  # 14-day ramp starting that date. Leave blank if the mailbox is warmed.
+  # Cold-mailbox warm-up. Ramps 10/day -> 15/day over 10 days from this
+  # start date. Set to an ISO date (YYYY-MM-DD) to enable. Leave blank/null
+  # once the mailbox is warmed.
   warmup_start_date: null

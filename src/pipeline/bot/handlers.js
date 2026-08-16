@@ -3,15 +3,26 @@
 // wiring so it is unit-testable.
 import {
   draftsByStatus, draftById, contactById, companyById, jobById,
-  updateDraftStatus,
+  contactsByCompany, jobsByCompany, existingDraftFor,
+  updateDraftStatus, createDraft,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
 import { sendMessage } from '../send/gmail.js';
 import { runSend } from '../send/index.js';
 import { runReport } from '../report/index.js';
+import { runDiscover } from '../discover/index.js';
+import { runIngest } from '../ingest/index.js';
+import { runQualify } from '../qualify/index.js';
+import { runEnrich } from '../enrich/index.js';
+import { runDraft } from '../draft/index.js';
+import { loadProfile } from '../draft/profile.js';
+import { generateDraft } from '../draft/llm.js';
+import { verifyHookEvidence } from '../draft/hook-verify.js';
 import { loadConfig } from '../config/loader.js';
 import { escapeHtml } from './telegram.js';
+import { addCompanyFromInput } from './addcompany.js';
+import { logger } from '../util/logger.js';
 
 /* ── read commands ────────────────────────────────────────── */
 
@@ -74,11 +85,11 @@ export async function handlePreview(id) {
       from, fromName, to: previewTo,
       subject: `[PREVIEW #${d.id}] ${d.subject}`,
       body: [
-        '─── This is a preview only. Not sent to the real recipient. ───',
+        '--- This is a preview only. Not sent to the real recipient. ---',
         '',
         d.body,
         '',
-        '─── End of draft. Original recipient info below. ───',
+        '--- End of draft. Original recipient info below. ---',
         `Recipient: ${(contactById(d.contact_id) || {}).email || '?'}`,
         `Draft id: ${d.id}`,
       ].join('\n'),
@@ -166,9 +177,152 @@ export function handleHelp() {
     '/preview &lt;id&gt; — send preview to your own Gmail',
     '/approve &lt;id&gt; — approve a pending draft',
     '/reject &lt;id&gt; [reason] — reject a pending draft',
+    '/replace &lt;id&gt; [reason] — reject + regenerate a fresh draft',
     '/replied &lt;id&gt; — manually cancel remaining follow-ups',
     '/send — send all approved drafts now',
+    '/run — fire the full pipeline (discover → ingest → qualify → enrich → draft)',
+    '/draft &lt;company-slug&gt; — force-draft against a company by slug',
+    '/addcompany &lt;linkedin-url | ats-url | name slug ats&gt; — add a company manually',
     '/status — pipeline funnel snapshot',
     '/whoami — show your Telegram chat id (for env config)',
   ].join('\n');
+}
+
+/* ── /run: fire full pipeline ─────────────────────────────── */
+
+export async function handleRun() {
+  const config = loadConfig();
+  const stats = { discover: null, ingest: null, qualify: null, enrich: null, draft: null };
+  try {
+    stats.discover = await runDiscover({ config });
+    stats.ingest   = await runIngest({ config });
+    stats.qualify  = await runQualify({ config });
+    stats.enrich   = await runEnrich({ config });
+    stats.draft    = await runDraft({ config });
+  } catch (err) {
+    logger.error({ err: err.message }, 'run pipeline failed');
+    return `Pipeline run failed: ${escapeHtml(err.message)}`;
+  }
+  return [
+    '<b>Pipeline run complete</b>',
+    `discover: ${JSON.stringify(stats.discover || {})}`,
+    `ingest:   ${JSON.stringify(stats.ingest || {})}`,
+    `qualify:  ${JSON.stringify(stats.qualify || {})}`,
+    `enrich:   ${JSON.stringify(stats.enrich || {})}`,
+    `draft:    ${JSON.stringify(stats.draft || {})}`,
+  ].join('\n');
+}
+
+/* ── /replace: reject + regenerate for the same contact+job ─ */
+
+export async function handleReplace(id, reason) {
+  const draftId = Number(id);
+  const d = draftById(draftId);
+  if (!d) return `Draft ${id} not found.`;
+  if (d.status === 'sent') return `Draft ${id} was already sent; cannot replace.`;
+
+  const contact = contactById(d.contact_id);
+  const job = d.job_id ? jobById(d.job_id) : null;
+  if (!contact || !job) return `Draft ${id} missing contact or job — cannot regenerate.`;
+  const company = companyById(contact.company_id);
+
+  // Reject the current draft first so /list stays clean.
+  updateDraftStatus(draftId, 'rejected', { reason: reason || 'replace via telegram' });
+
+  const config = loadConfig();
+  let profile;
+  try { profile = loadProfile(); }
+  catch (err) { return `Profile not ready: ${escapeHtml(err.message)}`; }
+
+  try {
+    const gen = await generateDraft({
+      model: config.llm.drafts_model,
+      promptVersion: config.llm.prompt_version,
+      profile, company, contact, job,
+      track: (job.track || 'A'),
+    });
+    if (/^SKIP:/i.test(gen.body)) {
+      return `Regeneration skipped by LLM (${escapeHtml(gen.body.slice(0, 80))}).`;
+    }
+    const hookOK = verifyHookEvidence({
+      hookEvidence: gen.hookEvidence,
+      sourceText: job.description_text || '',
+    });
+    const created = createDraft({
+      contactId: contact.id, jobId: job.id,
+      subject: gen.subject, body: gen.body,
+      promptVersion: gen.promptVersion,
+      hookEvidence: gen.hookEvidence,
+      hookVerified: hookOK,
+      model: gen.model,
+    });
+    return `Draft ${draftId} rejected. New draft #${created.id} created (hook_verified=${hookOK ? 'yes' : 'NO'}). Use /show ${created.id}.`;
+  } catch (err) {
+    return `Regeneration failed: ${escapeHtml(err.message)}`;
+  }
+}
+
+/* ── /draft <slug>: force-draft against a company by slug ── */
+
+export async function handleDraftForSlug(slug) {
+  if (!slug) return 'Usage: /draft &lt;company-slug&gt;';
+  const db = getDb();
+  const company = db.prepare('SELECT * FROM company WHERE slug = ? LIMIT 1').get(String(slug).toLowerCase());
+  if (!company) return `No company with slug "${escapeHtml(slug)}".`;
+
+  const contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
+  if (contacts.length === 0) return `Company ${escapeHtml(company.name)} has no usable contact. Run /run or enrich first.`;
+  const jobs = jobsByCompany(company.id).filter(j => j.status === 'qualified')
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
+  if (jobs.length === 0) return `Company ${escapeHtml(company.name)} has no qualified jobs. Run /run first.`;
+
+  const contact = contacts[0];
+  const job = jobs[0];
+  if (existingDraftFor(contact.id, job.id)) {
+    return `A draft already exists for ${escapeHtml(company.name)}. Use /replace on it instead.`;
+  }
+
+  const config = loadConfig();
+  let profile;
+  try { profile = loadProfile(); }
+  catch (err) { return `Profile not ready: ${escapeHtml(err.message)}`; }
+
+  try {
+    const gen = await generateDraft({
+      model: config.llm.drafts_model,
+      promptVersion: config.llm.prompt_version,
+      profile, company, contact, job,
+      track: (job.track || 'A'),
+    });
+    if (/^SKIP:/i.test(gen.body)) {
+      return `LLM skipped drafting (${escapeHtml(gen.body.slice(0, 80))}).`;
+    }
+    const hookOK = verifyHookEvidence({
+      hookEvidence: gen.hookEvidence,
+      sourceText: job.description_text || '',
+    });
+    const created = createDraft({
+      contactId: contact.id, jobId: job.id,
+      subject: gen.subject, body: gen.body,
+      promptVersion: gen.promptVersion,
+      hookEvidence: gen.hookEvidence,
+      hookVerified: hookOK,
+      model: gen.model,
+    });
+    return `Draft #${created.id} created for ${escapeHtml(company.name)} (hook_verified=${hookOK ? 'yes' : 'NO'}). Use /show ${created.id}.`;
+  } catch (err) {
+    return `Draft generation failed: ${escapeHtml(err.message)}`;
+  }
+}
+
+/* ── /addcompany <input>: manual company registration ─────── */
+
+export async function handleAddCompany(input) {
+  if (!input) return 'Usage: /addcompany &lt;linkedin-url | ats-url | name slug ats&gt;';
+  try {
+    const r = await addCompanyFromInput(input);
+    return escapeHtml(r.message);
+  } catch (err) {
+    return `Add failed: ${escapeHtml(err.message)}`;
+  }
 }

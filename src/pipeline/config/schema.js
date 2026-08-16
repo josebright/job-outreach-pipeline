@@ -33,9 +33,14 @@ const scoringSchema = z.object({
     remote_worldwide: z.number().default(15),
     recent_post_days: z.number().default(15),
     stack_overlap: z.number().default(10),
-    company_size_sweet_spot: z.number().default(10),
+    company_size_sweet_spot: z.number().default(20),   // was 10; boosted for small startups
+    seed_stage_bonus: z.number().default(5),           // extra for 11-50 (founder-read email)
     eor_mention: z.number().default(5),
   }),
+  // Hard filter: companies at or above this size band are dropped after
+  // scoring (Q6). Enterprise recruiting funnels through ATS + agencies
+  // and does not respond to direct outreach at meaningful rates.
+  reject_size_bands: z.array(z.string()).default(['1000+', '10000+', '5001-10000']),
 });
 
 const sendSchema = z.object({
@@ -45,11 +50,18 @@ const sendSchema = z.object({
   reply_to: z.string().email().optional(),
   daily_cap_initial: z.number().int().positive().default(15),
   daily_cap_followup: z.number().int().positive().default(15),
+  // Sunday is a low-signal day for cold outreach (replies dry up, Gmail
+  // penalizes weekend blasters). Cap independently.
+  sunday_cap_initial: z.number().int().nonnegative().default(3),
+  // Research roles (Research Engineer / Applied Research Engineer / ML
+  // Research Engineer) get their own daily send bucket so they do not
+  // eat the primary engineering send budget.
+  research_daily_cap: z.number().int().nonnegative().default(2),
   send_window_local_start: z.string().default('08:30'),
   send_window_local_end: z.string().default('11:00'),
   bounce_rate_alarm_pct: z.number().default(3),
   // Cold-mailbox warm-up. If set to an ISO date (YYYY-MM-DD), the send loop
-  // caps daily volume on a 14-day ramp starting that date. Leave blank/null
+  // caps daily volume on a 10-day ramp starting that date. Leave blank/null
   // to disable when the mailbox is already warmed.
   warmup_start_date: z.string().nullable().optional(),
 });

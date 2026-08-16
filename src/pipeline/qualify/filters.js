@@ -7,6 +7,42 @@ import { extractAnnualSalary } from './salary.js';
 const norm = s => (s || '').toLowerCase();
 const compact = s => norm(s).replace(/\s+/g, ' ');
 
+// Role markers that *must* appear in the title. Applicant is a fullstack /
+// backend / frontend / product SWE — not an ML/data/platform/SRE specialist.
+const ROLE_MARKERS = [
+  'software engineer', 'swe',
+  'backend engineer', 'back-end engineer', 'back end engineer',
+  'frontend engineer', 'front-end engineer', 'front end engineer',
+  'fullstack engineer', 'full-stack engineer', 'full stack engineer',
+  'full-stack developer', 'full stack developer', 'fullstack developer',
+  'backend developer', 'back-end developer', 'back end developer',
+  'frontend developer', 'front-end developer', 'front end developer',
+  'software developer',
+  'product engineer', 'founding engineer', 'founding software engineer',
+  'research engineer', 'applied research engineer', 'research software engineer',
+  'web engineer', 'mobile engineer',
+  'node engineer', 'nodejs engineer', 'node.js engineer',
+  'python engineer', 'typescript engineer', 'react engineer',
+  'nestjs engineer', 'flutter engineer',
+];
+
+// Explicit rejects: engineering-adjacent titles outside the applicant's scope.
+// Runs *after* ROLE_MARKERS so titles like "Machine Learning Engineer" that
+// pass the "engineer" substring get filtered here.
+const REJECT_ROLE_MARKERS = [
+  'architect', 'sre', 'site reliability',
+  'devops', 'devsecops', 'security engineer',
+  'ml engineer', 'machine learning engineer',
+  'data engineer', 'data scientist', 'analytics engineer',
+  'infrastructure engineer', 'infra engineer',
+  'platform engineer', 'platform lead',
+  'firmware engineer', 'hardware engineer', 'embedded engineer',
+  'qa engineer', 'quality engineer', 'test engineer', 'sdet',
+  'sales engineer', 'solutions engineer', 'support engineer',
+  'network engineer', 'systems engineer', 'system engineer',
+  'ai engineer', 'mlops', 'ai/ml',
+];
+
 /**
  * Q1: Role matches profile.
  * - Title/description contains any of config.stack.keywords, AND
@@ -22,13 +58,15 @@ export function q1_roleMatches(job, config) {
   // Split keywords into ROLE keywords (must appear in title) and STACK
   // keywords (may appear anywhere). Prevents "Demand Generation Lead" from
   // qualifying just because the description happens to mention Python.
-  const ROLE_MARKERS = [
-    'engineer', 'developer', 'architect', 'sre', 'devops',
-    'programmer', 'software', 'backend', 'frontend', 'fullstack', 'full-stack', 'full stack',
-    'platform', 'infrastructure', 'ml', 'data engineer', 'technical lead', 'tech lead',
-  ];
+  //
+  // Scope is deliberately narrow: SWE / backend / frontend / fullstack /
+  // product / founding / research-engineer. Roles like architect, SRE,
+  // devops, ML/data engineer, platform/infrastructure engineer are dropped
+  // because they don't match the applicant's stack focus.
   const titleHasRole = ROLE_MARKERS.some(m => title.includes(m));
   if (!titleHasRole) return { pass: false, reason: 'title_not_engineering' };
+  const isReject = REJECT_ROLE_MARKERS.some(m => title.includes(m));
+  if (isReject) return { pass: false, reason: 'title_role_out_of_scope' };
 
   const hasStackKeyword = keywords.some(k => text.includes(norm(k)));
   if (!hasStackKeyword) return { pass: false, reason: 'no_stack_keyword_match' };
@@ -133,6 +171,23 @@ export function q4_visaRelocation(job, track = 'A') {
  */
 export function q5_notPreviouslyContacted(alreadyContacted) {
   if (alreadyContacted) return { pass: false, reason: 'contacted_within_90_days' };
+  return { pass: true, reason: null };
+}
+
+/**
+ * Q6: Company size sanity. Enterprises (1000+ headcount) route hiring
+ * through ATS + recruiting agencies and rarely reply to cold outreach,
+ * so we drop them outright. Unknown size is not enough to reject — it
+ * only fails when the seed/enrichment recorded a size band in the
+ * configured reject list.
+ */
+export function q6_companySizeOK(company, config) {
+  const band = String(company?.size_band || '').trim();
+  if (!band) return { pass: true, reason: null };
+  const rejects = (config?.scoring?.reject_size_bands || []).map(b => String(b).toLowerCase());
+  if (rejects.includes(band.toLowerCase())) {
+    return { pass: false, reason: `company_size_too_large:${band}` };
+  }
   return { pass: true, reason: null };
 }
 

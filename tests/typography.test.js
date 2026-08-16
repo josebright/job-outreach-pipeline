@@ -3,7 +3,7 @@
 // Elastic send: Subject header carried an em dash but was declared as
 // 7bit ASCII, so receiving clients rendered "—" as "Ã¢Â€Â\"".
 import { describe, it, expect } from 'vitest';
-import { sanitizeAsciiTypography } from '../src/pipeline/draft/llm.js';
+import { sanitizeAsciiTypography, collapseHardWraps } from '../src/pipeline/draft/llm.js';
 import { encodeHeader, buildMime } from '../src/pipeline/send/gmail.js';
 
 describe('sanitizeAsciiTypography', () => {
@@ -31,6 +31,46 @@ describe('sanitizeAsciiTypography', () => {
   it('returns empty string for empty input', () => {
     expect(sanitizeAsciiTypography('')).toBe('');
     expect(sanitizeAsciiTypography(null)).toBe(null);
+  });
+});
+
+describe('collapseHardWraps', () => {
+  it('joins soft-wrapped lines within a paragraph', () => {
+    const input = 'I came across the role at Linear, and the\nframing around being the first hire\nstood out to me.';
+    const out = collapseHardWraps(input);
+    expect(out).toBe('I came across the role at Linear, and the framing around being the first hire stood out to me.');
+  });
+
+  it('keeps paragraph breaks (double newlines)', () => {
+    const input = 'First paragraph is one long thought.\n\nSecond paragraph is another.';
+    expect(collapseHardWraps(input)).toBe('First paragraph is one long thought.\n\nSecond paragraph is another.');
+  });
+
+  it('collapses within paragraphs but not across paragraphs', () => {
+    const input = 'Para one\nwith wrap.\n\nPara two\nalso wrapped.';
+    expect(collapseHardWraps(input)).toBe('Para one with wrap.\n\nPara two also wrapped.');
+  });
+
+  it('preserves line breaks in signature paragraphs (contain URLs)', () => {
+    const input = 'Real body sentence here.\n\nUchenna Bright Ugwumadu\nhttps://brightugwumadu.vercel.app\nhttps://www.linkedin.com/in/josebright';
+    const out = collapseHardWraps(input);
+    expect(out).toContain('Uchenna Bright Ugwumadu\nhttps://brightugwumadu.vercel.app\nhttps://www.linkedin.com/in/josebright');
+    expect(out.split('\n\n').length).toBe(2);
+  });
+
+  it('handles Windows CRLF line endings', () => {
+    const input = 'line one\r\nline two\r\n\r\npara two';
+    expect(collapseHardWraps(input)).toBe('line one line two\n\npara two');
+  });
+
+  it('drops empty paragraphs', () => {
+    const input = 'para one\n\n\n\npara two';
+    expect(collapseHardWraps(input)).toBe('para one\n\npara two');
+  });
+
+  it('returns empty inputs unchanged', () => {
+    expect(collapseHardWraps('')).toBe('');
+    expect(collapseHardWraps(null)).toBe(null);
   });
 });
 

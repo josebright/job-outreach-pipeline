@@ -19,6 +19,7 @@ import { sendMessage } from './gmail.js';
 import { draftsDueForFollowup, followupBody, threadedSubject } from './follow-up.js';
 import { pollReplies, isPaused } from './reply-detect.js';
 import { effectiveCap } from './warmup.js';
+import { isResearchRole } from '../qualify/roles.js';
 
 export class SendBlockedError extends Error {
   constructor(reason, detail = {}) {
@@ -37,6 +38,7 @@ export async function sendApprovedDraft({
   draft, recipientEmail, kind, caps, transport,
   fromName = null, fromEmail = null, replyTo = null,
   threadId = null, inReplyTo = null, references = null,
+  counterKind = null,
 }) {
   if (draft.status !== 'approved' && kind === 'initial') {
     throw new SendBlockedError('draft_not_approved', { draftId: draft.id, status: draft.status });
@@ -44,10 +46,14 @@ export async function sendApprovedDraft({
   if (isSuppressed(recipientEmail)) {
     throw new SendBlockedError('recipient_suppressed', { recipientEmail });
   }
-  const cap = kind === 'initial' ? caps.initial : caps.followup;
-  const already = getSendCount(kind);
+  // `counterKind` routes cap accounting into a separate bucket (e.g., the
+  // research-role bucket) without changing the message.kind stored on the
+  // outbound record. Defaults to `kind` for backward compatibility.
+  const bucket = counterKind || kind;
+  const cap = pickCap(bucket, caps);
+  const already = getSendCount(bucket);
   if (already >= cap) {
-    throw new SendBlockedError('daily_cap_reached', { kind, cap, already });
+    throw new SendBlockedError('daily_cap_reached', { kind: bucket, cap, already });
   }
 
   const subject = kind === 'initial' ? draft.subject : threadedSubject(draft.subject);
@@ -65,7 +71,7 @@ export async function sendApprovedDraft({
   // (QA 3.3). Either all four writes commit or none do.
   const db = getDb();
   const tx = db.transaction(() => {
-    incrementSendCount(kind);
+    incrementSendCount(bucket);
     db.prepare(`
       INSERT INTO message (draft_id, direction, kind, sent_at, thread_id, message_id)
       VALUES (?, 'outbound', ?, datetime('now'), ?, ?)
@@ -91,7 +97,7 @@ export async function sendApprovedDraft({
 export async function runSend({ config } = {}) {
   const stats = {
     replies: null, paused: false,
-    initialSent: 0, followup1Sent: 0, followup2Sent: 0,
+    initialSent: 0, researchSent: 0, followup1Sent: 0, followup2Sent: 0,
     blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, errors: 0,
   };
 
@@ -112,7 +118,14 @@ export async function runSend({ config } = {}) {
     logger.info({ warmupDay: initialCap.warmupDay, initialCap: initialCap.cap, followupCap: followupCap.cap },
       'sending under warm-up ramp');
   }
-  const caps = { initial: initialCap.cap, followup: followupCap.cap };
+  // Research-role bucket is a fixed side channel — not ramped and does not
+  // eat the primary engineering cap.
+  const researchCap = Number(config.send.research_daily_cap ?? 0);
+  const caps = {
+    initial: initialCap.cap,
+    followup: followupCap.cap,
+    initial_research: researchCap,
+  };
 
   // Load profile once for follow-up bodies.
   let profile = null;
@@ -123,8 +136,13 @@ export async function runSend({ config } = {}) {
   const fromName = config.send.sender_name;
   const replyTo = config.send.reply_to || null;
 
-  // 2. Initial sends.
-  for (const draft of draftsByStatus('approved')) {
+  // 2. Initial sends. Research-role drafts route into a separate bucket so
+  // they do not consume the primary engineering cap. Order approved drafts
+  // so research jobs get processed even after the main bucket fills.
+  const approved = draftsByStatus('approved');
+  const [primaryQueue, researchQueue] = partitionApprovedByRole(approved);
+
+  for (const draft of primaryQueue) {
     const contact = contactById(draft.contact_id);
     if (!contact) continue;
     try {
@@ -137,6 +155,23 @@ export async function runSend({ config } = {}) {
       catchBlocked(err, stats);
     }
     if (getSendCount('initial') >= caps.initial) break;
+  }
+
+  for (const draft of researchQueue) {
+    if (caps.initial_research <= 0) break;
+    const contact = contactById(draft.contact_id);
+    if (!contact) continue;
+    try {
+      await sendApprovedDraft({
+        draft, recipientEmail: contact.email, kind: 'initial', caps, transport,
+        fromEmail: from, fromName, replyTo,
+        counterKind: 'initial_research',
+      });
+      stats.researchSent++;
+    } catch (err) {
+      catchBlocked(err, stats);
+    }
+    if (getSendCount('initial_research') >= caps.initial_research) break;
   }
 
   // 3. Follow-up 1 (day 4).
@@ -203,4 +238,23 @@ function initialMessageFor(draftId) {
     SELECT * FROM message WHERE draft_id = ? AND kind = 'initial' AND direction = 'outbound'
     ORDER BY id ASC LIMIT 1
   `).get(draftId);
+}
+
+function pickCap(bucket, caps) {
+  if (bucket === 'initial') return caps.initial;
+  if (bucket === 'initial_research') return caps.initial_research ?? 0;
+  return caps.followup;
+}
+
+// Split approved drafts into (primary, research) by looking up the job title
+// on each draft. Draft rows without a linked job stay in the primary queue.
+function partitionApprovedByRole(drafts) {
+  const primary = [];
+  const research = [];
+  for (const d of drafts) {
+    const job = d.job_id ? getDb().prepare('SELECT title FROM job WHERE id = ?').get(d.job_id) : null;
+    if (job && isResearchRole(job.title)) research.push(d);
+    else primary.push(d);
+  }
+  return [primary, research];
 }

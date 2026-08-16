@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   q1_roleMatches, q2_remoteEligible, q3_currencyOK,
-  q4_visaRelocation, q5_notPreviouslyContacted,
+  q4_visaRelocation, q5_notPreviouslyContacted, q6_companySizeOK,
 } from '../src/pipeline/qualify/filters.js';
 
 const config = {
@@ -46,11 +46,12 @@ describe('Q1: role matches profile', () => {
     expect(r.reason).toBe('title_not_engineering');
   });
 
-  it('rejects engineering title with no stack keyword match', () => {
+  it('rejects generic "Engineer" titles outside the SWE scope', () => {
+    // Chemical Engineer contains "engineer" but no software-role marker.
     const job = { title: 'Chemical Engineer', description_text: 'refinery operations' };
     const r = q1_roleMatches(job, config);
     expect(r.pass).toBe(false);
-    expect(r.reason).toBe('no_stack_keyword_match');
+    expect(r.reason).toBe('title_not_engineering');
   });
 
   it('rejects a Demand Generation Lead even if description lists Python', () => {
@@ -60,13 +61,48 @@ describe('Q1: role matches profile', () => {
     expect(r.reason).toBe('title_not_engineering');
   });
 
-  it('accepts Solutions Architect (title has role marker)', () => {
+  it('rejects Solutions Architect (out-of-scope role)', () => {
     const job = { title: 'Senior Solutions Architect', description_text: 'Node, Python, AWS.' };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
+    // "architect" matches REJECT_ROLE_MARKERS; may also match title_not_engineering
+    // if no software marker; either way, not qualified.
+    expect(r.reason).toMatch(/^title_(role_out_of_scope|not_engineering)$/);
+  });
+
+  it('rejects Site Reliability Engineer (out-of-scope role)', () => {
+    const job = { title: 'Site Reliability Engineer', description_text: 'Node, Kubernetes.' };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/^title_(role_out_of_scope|not_engineering)$/);
+  });
+
+  it('rejects Data Engineer (out of scope)', () => {
+    const job = { title: 'Senior Data Engineer', description_text: 'Python, SQL, Airflow.' };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/^title_(role_out_of_scope|not_engineering)$/);
+  });
+
+  it('rejects Machine Learning Engineer (out of scope)', () => {
+    const job = { title: 'Machine Learning Engineer', description_text: 'PyTorch, Python.' };
+    const r = q1_roleMatches(job, config);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/^title_(role_out_of_scope|not_engineering)$/);
+  });
+
+  it('accepts Founding Engineer', () => {
+    const job = { title: 'Founding Engineer', description_text: 'Node, TypeScript, React.' };
     expect(q1_roleMatches(job, config).pass).toBe(true);
   });
 
-  it('accepts Site Reliability Engineer', () => {
-    const job = { title: 'Site Reliability Engineer', description_text: 'Node, Kubernetes.' };
+  it('accepts Product Engineer', () => {
+    const job = { title: 'Product Engineer', description_text: 'Node, TypeScript.' };
+    expect(q1_roleMatches(job, config).pass).toBe(true);
+  });
+
+  it('accepts Research Engineer', () => {
+    const job = { title: 'Research Engineer', description_text: 'Python, Node.' };
     expect(q1_roleMatches(job, config).pass).toBe(true);
   });
 
@@ -195,5 +231,42 @@ describe('Q5: not previously contacted', () => {
     const r = q5_notPreviouslyContacted(true);
     expect(r.pass).toBe(false);
     expect(r.reason).toBe('contacted_within_90_days');
+  });
+});
+
+/* ── Q6 company size ────────────────────────────────────────── */
+
+describe('Q6: company size sanity', () => {
+  const cfg = { scoring: { reject_size_bands: ['1000+', '1001-5000', '5001-10000', '10001+', '10000+'] } };
+
+  it('passes when size is unknown', () => {
+    expect(q6_companySizeOK({}, cfg).pass).toBe(true);
+    expect(q6_companySizeOK({ size_band: null }, cfg).pass).toBe(true);
+  });
+
+  it('passes for 11-50 (sweet spot)', () => {
+    expect(q6_companySizeOK({ size_band: '11-50' }, cfg).pass).toBe(true);
+  });
+
+  it('passes for 51-200', () => {
+    expect(q6_companySizeOK({ size_band: '51-200' }, cfg).pass).toBe(true);
+  });
+
+  it('passes for 201-500', () => {
+    expect(q6_companySizeOK({ size_band: '201-500' }, cfg).pass).toBe(true);
+  });
+
+  it('rejects 1000+', () => {
+    const r = q6_companySizeOK({ size_band: '1000+' }, cfg);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain('company_size_too_large');
+  });
+
+  it('rejects 10000+', () => {
+    expect(q6_companySizeOK({ size_band: '10000+' }, cfg).pass).toBe(false);
+  });
+
+  it('reject list is case-insensitive', () => {
+    expect(q6_companySizeOK({ size_band: '1000+' }, cfg).pass).toBe(false);
   });
 });

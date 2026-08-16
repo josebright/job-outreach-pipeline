@@ -113,7 +113,7 @@ describe('runQualify: end-to-end', () => {
     });
   });
 
-  it('is idempotent: second pass does not change qualified rows', () => {
+  it('re-qualifies already-qualified jobs on subsequent passes so filter changes take retroactive effect', () => {
     const config = realConfig();
     const c = upsertCompany({
       name: 'Delta', ats: 'greenhouse', slug: 'delta',
@@ -133,8 +133,11 @@ describe('runQualify: end-to-end', () => {
     return runQualify({ config }).then(first => {
       return runQualify({ config }).then(second => {
         expect(first.qualified).toBe(1);
-        // On re-run there are no 'ingested' jobs left, so 0 evaluated.
-        expect(second.evaluated).toBe(0);
+        // Second pass re-evaluates the already-qualified job (still passes)
+        // so filter tweaks propagate retroactively. Idempotent by outcome,
+        // not by work count.
+        expect(second.evaluated).toBe(1);
+        expect(second.qualified).toBe(1);
         const job = jobById(1);
         expect(job.status).toBe('qualified');
       });

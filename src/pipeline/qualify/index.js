@@ -8,21 +8,28 @@ import {
 } from '../db/repo.js';
 import {
   q1_roleMatches, q2_remoteEligible, q3_currencyOK,
-  q4_visaRelocation, q5_notPreviouslyContacted,
+  q4_visaRelocation, q5_notPreviouslyContacted, q6_companySizeOK,
 } from './filters.js';
 import { scoreJob } from './score.js';
 import { logger } from '../util/logger.js';
 
 /**
- * Score & classify every ingested job. Returns aggregate counts.
- * Also processes needs_review jobs (idempotent, in case config changed).
+ * Score & classify every job. Returns aggregate counts.
+ *
+ * Processes 'ingested', 'needs_review', AND already-'qualified' jobs so
+ * that filter changes (e.g., tightening Q1 to require an engineering role
+ * marker) take retroactive effect. Already-'disqualified' and 'closed'
+ * jobs are not touched.
  */
 export async function runQualify({ config } = {}) {
   const tracks = config.tracks_enabled || ['A'];
   const threshold = config.scoring.threshold;
 
-  // Process ingested + needs_review together so re-runs pick up borderline cases.
-  const targets = [...jobsByStatus('ingested'), ...jobsByStatus('needs_review')];
+  const targets = [
+    ...jobsByStatus('ingested'),
+    ...jobsByStatus('needs_review'),
+    ...jobsByStatus('qualified'),
+  ];
   const stats = { evaluated: 0, qualified: 0, disqualified: 0, needsReview: 0 };
   const touchedCompanies = new Set();
 
@@ -86,6 +93,9 @@ export function evaluateTrack(job, company, config, track) {
   const contacted = wasCompanyContactedRecently(company.id, 90);
   const q5 = q5_notPreviouslyContacted(contacted);
   if (!q5.pass) return fail(q5.reason);
+
+  const q6 = q6_companySizeOK(company, config);
+  if (!q6.pass) return fail(q6.reason);
 
   const { score } = scoreJob(job, company, config);
   if (score < config.scoring.threshold) {

@@ -105,12 +105,37 @@ export async function generateDraft({
   const { subject, body, hook_evidence } = toolUse.input || {};
   return {
     subject: sanitizeAsciiTypography(String(subject || '').trim()),
-    body: sanitizeAsciiTypography(String(body || '').trim()),
+    body: collapseHardWraps(sanitizeAsciiTypography(String(body || '').trim())),
     hookEvidence: sanitizeAsciiTypography(String(hook_evidence || '').trim()),
     model,
     promptVersion,
     rawUsage: res.usage || null,
   };
+}
+
+/**
+ * Collapse intra-paragraph hard line breaks into spaces while keeping
+ * blank-line paragraph separators. Fixes the "awkward mid-sentence
+ * newlines on mobile" rendering that the LLM sometimes emits when its
+ * output includes soft-wrapping at ~72 characters.
+ *
+ * Signature paragraphs (containing http:// or https://) are left alone
+ * so each link stays on its own line as the reader expects.
+ *
+ * Input:   "line one\nline two\n\nUchenna\nhttps://x.dev\nhttps://y.io"
+ * Output:  "line one line two\n\nUchenna\nhttps://x.dev\nhttps://y.io"
+ */
+export function collapseHardWraps(text) {
+  if (!text) return text;
+  return String(text)
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map(para => {
+      if (/https?:\/\//.test(para)) return para.trim();
+      return para.replace(/\s*\n\s*/g, ' ').replace(/ {2,}/g, ' ').trim();
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**

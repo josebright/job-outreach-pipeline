@@ -8,6 +8,7 @@ import {
   handleList, handleShow, handlePreview,
   handleApprove, handleReject, handleMarkReplied,
   handleSend, handleStatus, handleHelp,
+  handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
 } from './handlers.js';
 
 let running = null;
@@ -69,6 +70,30 @@ export function startBot() {
   bot.command('send', async (ctx) => {
     await ctx.reply('Firing send loop…');
     ctx.replyWithHTML(await handleSend());
+  });
+
+  bot.command('run', async (ctx) => {
+    await ctx.reply('Firing full pipeline… this may take a few minutes.');
+    ctx.replyWithHTML(await handleRun());
+  });
+
+  bot.command('replace', async (ctx) => {
+    const [id, ...rest] = argsOf(ctx);
+    await ctx.reply(`Regenerating draft #${id}…`);
+    ctx.replyWithHTML(await handleReplace(id, rest.join(' ')));
+  });
+
+  bot.command('draft', async (ctx) => {
+    const slug = argOf(ctx);
+    await ctx.reply(`Drafting for ${slug || '(no slug)'} …`);
+    ctx.replyWithHTML(await handleDraftForSlug(slug));
+  });
+
+  bot.command('addcompany', async (ctx) => {
+    const text = ctx.message?.text || '';
+    const input = text.replace(/^\/addcompany(@\S+)?\s*/i, '').trim();
+    await ctx.reply('Looking up…');
+    ctx.replyWithHTML(await handleAddCompany(input));
   });
 
   bot.catch((err, ctx) => {
