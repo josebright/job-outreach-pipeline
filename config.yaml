@@ -113,7 +113,11 @@ discover:
   serp_provider: brave        # brave (free 2000/mo, site: supported) | serper (paid) | google_pse (closed to new customers as of 2026) | serpapi
   monthly_query_budget: 500
   ats_platforms: [greenhouse, lever, ashby, workable, smartrecruiters]
-  aggregator_feeds: [remotive, remoteok]
+  # remotive + remoteok = job-board aggregators
+  # hn  = Hacker News "Ask HN: Who is hiring?" monthly thread
+  # yc  = Y Combinator public company directory (all sizes, we filter to ≤500)
+  # wwr = We Work Remotely programming RSS feed
+  aggregator_feeds: [remotive, remoteok, hn, yc, wwr]
   seed_csv_path: data/seed_companies.csv
 
 # ── Enrichment ─────────────────────────────────────────────────

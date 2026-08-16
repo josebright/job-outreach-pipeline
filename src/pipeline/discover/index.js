@@ -115,7 +115,16 @@ export async function runDiscover({ config }) {
       });
       if (!resolved) continue;
       const { created } = upsertCompany({
-        name: resolved.companyName, ats: resolved.ats, slug: resolved.slug, source: `aggregator:${aggName}`,
+        name: resolved.companyName, ats: resolved.ats, slug: resolved.slug,
+        source: `aggregator:${aggName}`,
+        website: c.website || null,
+        // If the aggregator gave us a sizeBand (only YC does today), pass
+        // it through with source='hunter' trust — YC's own team-size
+        // data is more accurate than what companies/find would return
+        // for the same slug, but we still want draft-time re-verification
+        // on the 501+ boundary.
+        sizeBand: c.sizeBand || null,
+        sizeBandSource: c.sizeBand ? 'hunter' : null,
       });
       if (created) stats.aggregatorResolved++;
       else stats.duplicates++;
