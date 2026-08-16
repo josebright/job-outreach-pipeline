@@ -2,8 +2,13 @@
 // scripts/service.js
 // Always-on Railway entry. Runs:
 //   1. Telegraf bot for interactive review (long-polling).
-//   2. Internal node-cron scheduler for the daily pipeline.
-//   3. Health heartbeat every 6 hours so a stuck process shows in logs.
+//   2. Daily pipeline cron (07:00 UTC) — discover → ingest → qualify →
+//      enrich → draft → report. Creates pending_review drafts, notifies
+//      you via Telegram if any land.
+//   3. Send cron (07:30 UTC = 08:30 WAT, inside the send window) — sends
+//      drafts already in status='approved'. Pending drafts are never
+//      auto-approved and never auto-sent; you must /approve them first.
+//   4. Health heartbeat every 6 hours so a stuck process shows in logs.
 //
 // Every path exits with code 0 when possible so env-var redeploys are not
 // mislabelled as crashes by Railway's alert system.
@@ -17,11 +22,16 @@ import { runQualify } from '../src/pipeline/qualify/index.js';
 import { runEnrich } from '../src/pipeline/enrich/index.js';
 import { runDraft } from '../src/pipeline/draft/index.js';
 import { runReport } from '../src/pipeline/report/index.js';
+import { runSend } from '../src/pipeline/send/index.js';
 import { startBot, stopBot } from '../src/pipeline/bot/index.js';
 import { notify } from '../src/pipeline/bot/telegram.js';
 import { logger } from '../src/pipeline/util/logger.js';
 
 const DAILY_SCHEDULE = process.env.PIPELINE_DAILY_CRON || '0 7 * * *';   // 07:00 UTC
+// Send cron fires once inside the applicant's send window
+// (config.send.send_window_local_start = 08:30 WAT = 07:30 UTC).
+// Approved drafts go out; pending / rejected are untouched.
+const SEND_SCHEDULE = process.env.PIPELINE_SEND_CRON || '30 7 * * *';    // 07:30 UTC = 08:30 WAT
 const HEARTBEAT_SCHEDULE = '0 */6 * * *';                                 // every 6h
 
 // ── Global error guards ─────────────────────────────────────
@@ -35,6 +45,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 let running = false;
+let sending = false;
 
 async function dailyRun() {
   if (running) {
@@ -77,6 +88,51 @@ async function dailyRun() {
   }
 }
 
+/**
+ * Send cron. Fires once per day inside the applicant's send window.
+ * Only sends drafts already in status='approved' — pending drafts are
+ * never auto-approved and never auto-sent. This is a scheduled version
+ * of the /send Telegram command.
+ *
+ * Skips fire if the dailyRun is still running (draft generation shouldn't
+ * race with sending).
+ */
+async function sendRun() {
+  if (running) {
+    logger.warn('daily pipeline still running, deferring send fire');
+    return;
+  }
+  if (sending) {
+    logger.warn('send already in progress, skipping this fire');
+    return;
+  }
+  sending = true;
+  try {
+    const config = loadConfig();
+    logger.info({ schedule: SEND_SCHEDULE }, 'send cron started');
+    const stats = await runSend({ config });
+    logger.info(stats, 'send cron complete');
+
+    const sent = (stats.initialSent || 0) + (stats.researchSent || 0)
+               + (stats.followup1Sent || 0) + (stats.followup2Sent || 0);
+    if (sent > 0) {
+      await notify(
+        [
+          '<b>Send window complete.</b>',
+          `Initial: ${stats.initialSent || 0}${stats.researchSent ? ` (+${stats.researchSent} research)` : ''}`,
+          `Follow-ups: ${(stats.followup1Sent || 0) + (stats.followup2Sent || 0)}`,
+          stats.paused ? '<b>PAUSED</b> — bounce alarm tripped.' : '',
+        ].filter(Boolean).join('\n'),
+      );
+    }
+  } catch (err) {
+    logger.error({ err: err.message, stack: err.stack }, 'send cron failed');
+    try { await notify(`<b>Send error:</b> ${err.message.slice(0, 200)}`); } catch { /* ignore */ }
+  } finally {
+    sending = false;
+  }
+}
+
 async function main() {
   getDb();
   runMigrations();
@@ -86,6 +142,9 @@ async function main() {
 
   cron.schedule(DAILY_SCHEDULE, dailyRun, { timezone: 'UTC' });
   logger.info({ cron: DAILY_SCHEDULE }, 'daily cron scheduled');
+
+  cron.schedule(SEND_SCHEDULE, sendRun, { timezone: 'UTC' });
+  logger.info({ cron: SEND_SCHEDULE }, 'send cron scheduled');
 
   cron.schedule(HEARTBEAT_SCHEDULE, () => {
     logger.info({ uptime_s: Math.round(process.uptime()) }, 'heartbeat');

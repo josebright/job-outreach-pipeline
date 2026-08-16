@@ -5,8 +5,9 @@
 //   - Follow-up scheduling (day 4, day 10)
 //   - Reply detection + bounce → auto-suppress + bounce-rate alarm auto-pause
 //
-// runSend is what the daily cron calls. sendApprovedDraft is the single
-// send path every outbound message goes through; guards live here.
+// runSend is what the send-window cron (07:30 UTC in scripts/service.js)
+// and the /send Telegram command both call. sendApprovedDraft is the
+// single send path every outbound message goes through; guards live here.
 import {
   getSendCount, incrementSendCount, isSuppressed,
   draftsByStatus, draftById, contactById, updateDraftStatus,
