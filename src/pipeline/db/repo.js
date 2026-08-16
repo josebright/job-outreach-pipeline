@@ -64,6 +64,29 @@ export function allCompanySlugs(ats) {
   return getDb().prepare('SELECT slug FROM company WHERE ats = ?').all(ats).map(r => r.slug);
 }
 
+/**
+ * Backfill Hunter enrichment fields on a company. Only overwrites fields
+ * that are currently null so seed CSV / manual data always wins over
+ * Hunter's guess.
+ */
+export function updateCompanyEnrichment(id, {
+  sizeBand = null, hqCountry = null, website = null,
+  industry = null, linkedinUrl = null, emailPattern = null,
+} = {}) {
+  const db = getDb();
+  db.prepare(`
+    UPDATE company SET
+      size_band    = COALESCE(size_band, ?),
+      hq_country   = COALESCE(hq_country, ?),
+      website      = COALESCE(website, ?),
+      industry     = COALESCE(industry, ?),
+      linkedin_url = COALESCE(linkedin_url, ?),
+      email_pattern = COALESCE(email_pattern, ?),
+      updated_at   = datetime('now')
+    WHERE id = ?
+  `).run(sizeBand, hqCountry, website, industry, linkedinUrl, emailPattern, id);
+}
+
 /* ── job ────────────────────────────────────────────────────── */
 
 export function upsertJob({

@@ -6,10 +6,14 @@
 // when the monthly Hunter budget is exhausted, without failing the run.
 import {
   companiesByStatus, contactCountForCompany, upsertContact,
+  updateCompanyEnrichment,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { logger } from '../util/logger.js';
-import { domainSearch, emailVerifier as hunterVerifier, mapHunterStatus } from './hunter.js';
+import {
+  domainSearch, emailVerifier as hunterVerifier, mapHunterStatus,
+  emailCount, companyEnrich, employeesToBand,
+} from './hunter.js';
 
 // Alias so both usages in this file (Hunter primary + posting-scrape verify) read cleanly.
 const emailVerifier = hunterVerifier;
@@ -38,6 +42,8 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
     invalid: 0,
     budgetExceeded: false,
     skippedNoDomain: 0,
+    skippedEmptyIndex: 0,   // Hunter has 0 emails for this domain
+    sizeBackfilled: 0,      // companies/find gave us a size_band
   };
 
   // Prefer the new `monthly_budget` field; fall back to the legacy `monthly_budget_usd`.
@@ -68,14 +74,69 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
     if (!domain) { stats.skippedNoDomain++; continue; }
 
     try {
+      // 0. FREE pre-check: Hunter's own guidance is to call email-count
+      // before spending a domain-search credit. If Hunter has 0 emails on
+      // the domain, we skip domain-search entirely and go straight to the
+      // posting-scrape fallback.
+      const count = await emailCount({ domain });
+      if (count.total === 0) {
+        stats.skippedEmptyIndex++;
+        // still fall through to companies/find + posting-scrape below
+      }
+
+      // 1. Company enrichment: cheap way to backfill missing size_band /
+      // hq_country / industry. Only fire it when we're actually missing
+      // one of those — no point spending a credit if the seed CSV already
+      // gave us everything.
+      if (!company.size_band || !company.hq_country || !company.industry) {
+        try {
+          charge(PROVIDER, 1, budget);
+          const info = await companyEnrich({ domain });
+          if (info) {
+            const band = employeesToBand(info.employeesEstimate);
+            updateCompanyEnrichment(company.id, {
+              sizeBand:    band,
+              hqCountry:   info.country,
+              industry:    info.industry,
+              linkedinUrl: info.linkedin,
+            });
+            if (band && !company.size_band) stats.sizeBackfilled++;
+            // Refresh local copy so downstream ranking sees the new size.
+            if (band) company.size_band = band;
+          }
+        } catch (err) {
+          if (err.name === 'BudgetExceededError') {
+            stats.budgetExceeded = true; break;
+          }
+          logger.warn({ err: err.message, domain }, 'companies/find failed (non-fatal)');
+        }
+      }
+
+      // 2. Domain-search only if Hunter has any data. `count.total === null`
+      // means the free check itself failed — treat as unknown and try
+      // anyway rather than starve the pipeline.
+      const hasIndex = count.total === null || count.total > 0;
+      if (!hasIndex) {
+        stats.companiesProcessed++;
+        // Skip to posting-scrape fallback below.
+      }
+
       // Charge 1 credit per domain-search call up front (Hunter says
       // 1 credit per 10 results; we're approximating).
-      charge(PROVIDER, 1, budget);
       const small = isSmallCo(company);
       const pool = new Map();          // email -> emailData (top rank wins)
 
+      if (hasIndex) {
+      charge(PROVIDER, 1, budget);
       for (const q of queriesFor(company)) {
         const res = await domainSearch({ domain, ...q });
+        // Capture the pattern the first time Hunter returns one — even
+        // one indexed person is enough for future email-finder calls.
+        if (res.pattern && !company.email_pattern) {
+          try { updateCompanyEnrichment(company.id, { emailPattern: res.pattern }); }
+          catch { /* non-fatal */ }
+          company.email_pattern = res.pattern;
+        }
         for (const e of res.emails || []) {
           if (!e.value) continue;
           const key = e.value.toLowerCase();
@@ -135,8 +196,12 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
         });
         if (created) stats.contactsCreated++;
       }
+      }   // end: if (hasIndex)
 
-      stats.companiesProcessed++;
+      // Count every company we actually looked at (paid or free path).
+      // The `!hasIndex` branch above already incremented, so guard against
+      // double-count.
+      if (hasIndex) stats.companiesProcessed++;
 
       // Fallback: if Hunter yielded no contact, scan the company's job
       // postings for emails that appear in the text itself. Every candidate
