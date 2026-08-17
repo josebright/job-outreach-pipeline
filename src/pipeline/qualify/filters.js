@@ -61,6 +61,8 @@ const REJECT_ROLE_MARKERS = [
   'ml engineer', 'machine learning engineer', 'ml software engineer',
   'ai engineer', 'ai software engineer', 'agentic ai',
   'mlops', 'ai/ml', 'llm engineer', 'gen ai', 'genai engineer',
+  'ai governance', 'ai safety', 'ai alignment', 'ai trust',
+  'machine learning', 'ml research', 'ai research',
   ', machine learning', ' - machine learning',
   ', ml ', ' - ml ',
   ', ai ', ' - ai ', ', ai\b', ' - ai\b',
@@ -224,6 +226,17 @@ export function gate3_skillsetMatch(job, config) {
   const isReject = REJECT_ROLE_MARKERS.some(m => title.includes(m));
   if (isReject) return { pass: false, reason: 'title_role_out_of_scope' };
 
+  // Trailing parenthetical: often metadata like "(Europe/UK timezone)"
+  // or "(4-8 YOE)" (harmless) — but sometimes a substantive role scope
+  // like "(AI Governance)" or "(Machine Learning)" (must reject). Check
+  // the paren content against the same REJECT_ROLE_MARKERS list.
+  const paren = extractParenContent(job.title || '');
+  if (paren) {
+    const parenNorm = norm(paren);
+    const parenIsReject = REJECT_ROLE_MARKERS.some(m => parenNorm.includes(m));
+    if (parenIsReject) return { pass: false, reason: `paren_role_out_of_scope:${paren.slice(0, 40)}` };
+  }
+
   // Whitelist for comma/dash-suffix specializations. If the title has a
   // specialization after "Software Engineer, X" or "Software Engineer - X",
   // that X must be an accepted specialization. Prevents endless whack-a-
@@ -335,6 +348,19 @@ export function extractSpecialization(title) {
   const m = cleaned.match(/^(.*?)(?:,\s+|\s+[-–—]\s+)(.+)$/);
   if (!m) return null;
   return m[2].trim() || null;
+}
+
+/**
+ * Extract content inside a trailing "(...)" from a title.
+ *   "Staff Software Engineer (AI Governance)" → "AI Governance"
+ *   "Backend Engineer (Europe/UK timezone)"   → "Europe/UK timezone"
+ *   "Software Engineer"                       → null
+ * Exported for tests.
+ */
+export function extractParenContent(title) {
+  if (!title) return null;
+  const m = String(title).match(/\(([^)]+)\)\s*$/);
+  return m ? m[1].trim() : null;
 }
 
 function wordBoundary(haystack, needle) {

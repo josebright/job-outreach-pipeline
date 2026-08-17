@@ -33,15 +33,26 @@ VARIANTS
 V1_OBSERVATION — for 51-500 employee companies, and unknown-size default.
     Reply-rate data: 40% lift over credential-first for eng-leader audiences (HubSpot 2025).
     Subject: "{job_title} - {owner_profile.name}".
-    Body arc (3 short paragraphs):
-      1. OBSERVATION: cite one concrete thing from job_posting (a technical challenge,
-         a stack choice, a stated priority, a recent product move mentioned in the JD).
-         Then one clause on why it maps to the sender's work. hook_evidence quotes THIS.
-         Do NOT lead with credentials. Do NOT say "I saw your posting for X."
-      2. CREDENTIAL: one achievement from owner_profile.achievements that matches the
-         observation. Include the number/outcome. One follow-on clause naming the specific
-         technologies from job_posting that overlap with owner_profile.stack.
-      3. ASK: pick one of the accepted asks (see ACCEPTED ASKS).
+    Body arc (2 paragraphs, NO blank line between sentences inside a paragraph — see FORMATTING):
+      1. OBSERVATION + BRIDGE — max 30 words total.
+         Sentence 1 (<=15 words): a REACTION to one concrete thing from job_posting.
+         NOT a paraphrase of the JD. NOT a description of the company's own product.
+         The reader already knows what they're building; you need to add insight or angle.
+         Example bad: "AI Gateway sitting between coding agents and providers with audit
+                       trails, token tracking, and cost control is exactly the kind of
+                       security boundary work I find worth getting right."
+         Example good: "Token-cost governance is the piece most gateway teams under-
+                        estimate; I ran into that at [X] and had to build attribution
+                        after the fact."
+         Sentence 2 (<=15 words): the specific credential this observation earns you a
+         seat at the table for. Include the number/outcome. hook_evidence quotes the
+         source-of-truth phrase in the JD that Sentence 1 reacts to.
+      2. STACK + ASK — max 40 words total.
+         Sentence 1: one sentence naming specific technologies from job_posting that
+         overlap with owner_profile.stack. Natural prose, NOT a header like
+         "On stack overlap:" or "Tech I use:". Do not just list; embed in a sentence
+         about actual work.
+         Sentence 2: pick one of the accepted asks (see ACCEPTED ASKS).
 
 V2_QUESTION — for companies of 50 or fewer employees (founder-read inbox).
     Reply-rate data: highest yield when the question ties to why the hire likely exists
@@ -92,6 +103,34 @@ Plain text only. No markdown, no headers, no bullet lists in the body prose.
 
 Greeting: "Hi {contact.first_name}," on a line by itself.
 If contact.full_name is missing, use "Hi there,".
+
+FORMATTING (critical for mobile rendering)
+
+Paragraphs are separated by ONE blank line — nothing else. Do NOT put a
+blank line between two sentences that belong to the same thought. Do NOT
+soft-wrap lines yourself; emit each paragraph as one continuous line and
+let the mail client wrap it. Wrong output (creates a jagged wall on
+mobile Gmail):
+    Token-cost governance is the piece most gateway teams
+
+    under-estimate; I ran into that at Paystack.
+
+    I built the attribution model after the fact.
+Right output (renders cleanly):
+    Token-cost governance is the piece most gateway teams under-estimate; I ran into that at Paystack. I built the attribution model after the fact.
+
+METRIC AUTHENTICITY (critical)
+
+If you cite a percentage or number, it must be a metric that plausibly
+has a percentage. Legal: latency dropped 40%, error rate halved, cut
+report time from 4h to 6min, cost per request down 62%, throughput 3x.
+Illegal (invent these and the reader will spot it): "raised security
+posture 60%", "improved team morale 40%", "boosted code quality 25%",
+"increased engineering excellence 50%". These are qualitative concepts;
+no reader believes them and they flag as LLM confabulation.
+If owner_profile.achievements does not have a metric that fits the
+observation, either pick a different observation or return SKIP. Do NOT
+manufacture a number.
 
 Signature (each on its own line, exactly two lines):
   {owner_profile.name}

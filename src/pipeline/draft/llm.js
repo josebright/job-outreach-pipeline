@@ -128,27 +128,57 @@ export async function generateDraft({
 
 /**
  * Collapse intra-paragraph hard line breaks into spaces while keeping
- * blank-line paragraph separators. Fixes the "awkward mid-sentence
- * newlines on mobile" rendering that the LLM sometimes emits when its
- * output includes soft-wrapping at ~72 characters.
+ * real paragraph separators. Fixes the "awkward mid-sentence newlines
+ * on mobile" rendering that Claude Sonnet occasionally emits when it
+ * decides to put each thought on its own line separated by blank lines.
  *
  * Signature paragraphs (containing http:// or https://) are left alone
  * so each link stays on its own line as the reader expects.
  *
- * Input:   "line one\nline two\n\nUchenna\nhttps://x.dev\nhttps://y.io"
- * Output:  "line one line two\n\nUchenna\nhttps://x.dev\nhttps://y.io"
+ * Rule for a "real" paragraph break: the previous chunk ends with a
+ * sentence terminator (. ? ! :) OR the next chunk starts with a URL /
+ * signature marker. Anything else is a soft wrap and gets merged with
+ * a space.
+ *
+ * Input:   "line one\n\nline two\n\nUchenna\nhttps://x.dev"
+ * Output:  "line one line two\n\nUchenna\nhttps://x.dev"
+ *          (if "line one" doesn't end with .?!: it's treated as a
+ *           soft wrap and joined with "line two")
  */
 export function collapseHardWraps(text) {
   if (!text) return text;
-  return String(text)
+  const rawParas = String(text)
     .replace(/\r\n/g, '\n')
-    .split(/\n{2,}/)
-    .map(para => {
-      if (/https?:\/\//.test(para)) return para.trim();
-      return para.replace(/\s*\n\s*/g, ' ').replace(/ {2,}/g, ' ').trim();
-    })
-    .filter(Boolean)
-    .join('\n\n');
+    .split(/\n\s*\n+/);            // any run of blank-ish lines
+
+  // First pass: collapse single newlines inside each raw paragraph.
+  const paras = rawParas
+    .map(p => /https?:\/\//.test(p)
+      ? p.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n').trim()   // preserve link-per-line signature
+      : p.replace(/\s*\n\s*/g, ' ').replace(/ {2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  // Second pass: merge "faux paragraphs" — a paragraph that doesn't end
+  // with a sentence terminator is really a soft-wrapped continuation of
+  // the previous one. Claude sometimes emits every sentence as its own
+  // paragraph with a blank line separator, which mobile Gmail then
+  // renders as a wall of jagged short lines. Merge them into real
+  // sentence groups.
+  const out = [];
+  for (const p of paras) {
+    if (out.length === 0) { out.push(p); continue; }
+    const prev = out[out.length - 1];
+    const prevLast = prev.trim().slice(-1);
+    const isSigStart = /^https?:\/\//.test(p) || /https?:\/\//.test(out[out.length - 1]);
+    const prevEndsSentence = /[.?!:"']/.test(prevLast);
+    if (!prevEndsSentence && !isSigStart) {
+      // Soft-wrap continuation — merge with previous.
+      out[out.length - 1] = `${prev} ${p}`;
+    } else {
+      out.push(p);
+    }
+  }
+  return out.join('\n\n');
 }
 
 /**

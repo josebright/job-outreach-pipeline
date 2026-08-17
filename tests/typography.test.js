@@ -59,18 +59,69 @@ describe('collapseHardWraps', () => {
   });
 
   it('handles Windows CRLF line endings', () => {
-    const input = 'line one\r\nline two\r\n\r\npara two';
-    expect(collapseHardWraps(input)).toBe('line one line two\n\npara two');
+    // Real paragraph text ends with a terminator; the merge logic uses
+    // that to distinguish real breaks from LLM soft-wrap noise.
+    const input = 'line one\r\nline two.\r\n\r\npara two.';
+    expect(collapseHardWraps(input)).toBe('line one line two.\n\npara two.');
   });
 
   it('drops empty paragraphs', () => {
-    const input = 'para one\n\n\n\npara two';
-    expect(collapseHardWraps(input)).toBe('para one\n\npara two');
+    const input = 'para one.\n\n\n\npara two.';
+    expect(collapseHardWraps(input)).toBe('para one.\n\npara two.');
   });
 
   it('returns empty inputs unchanged', () => {
     expect(collapseHardWraps('')).toBe('');
     expect(collapseHardWraps(null)).toBe(null);
+  });
+
+  /* ── Sonnet's "blank line between every sentence" quirk ────── */
+
+  it('MERGES faux paragraphs when the previous chunk does not end with . ? ! :', () => {
+    // Real-world case from the /preview #76 screenshot: Claude emitted
+    // each mid-sentence chunk as its own paragraph with blank lines
+    // between, which mobile Gmail then renders as a jagged wall.
+    const input = [
+      'AI Gateway sitting between coding agents and providers',
+      '',
+      'like OpenAI or',
+      '',
+      'Anthropic - with audit trails, token tracking, and cost',
+      '',
+      'control - is',
+      '',
+      'exactly the kind of security boundary work I find worth',
+      '',
+      'getting right.',
+    ].join('\n');
+    const out = collapseHardWraps(input);
+    // Should collapse into ONE paragraph (single continuous line).
+    expect(out).not.toContain('\n\n');
+    expect(out).toContain('AI Gateway sitting between coding agents and providers like OpenAI or Anthropic');
+    expect(out.trim().endsWith('getting right.')).toBe(true);
+  });
+
+  it('keeps a real paragraph break when the previous chunk ends with a period', () => {
+    const input = 'First real thought.\n\nSecond real thought.';
+    expect(collapseHardWraps(input)).toBe('First real thought.\n\nSecond real thought.');
+  });
+
+  it('mixed case: keeps real breaks, merges faux breaks', () => {
+    const input = [
+      'Token cost governance is what most teams miss',   // no terminator → faux break
+      '',
+      'and I hit it at Paystack.',                        // → merged with previous
+      '',
+      'On stack, TypeScript and Postgres overlap.',       // ends "." → real break holds
+      '',
+      'Worth 15 min this week?',                          // ends "?" → real break holds
+    ].join('\n');
+    const out = collapseHardWraps(input);
+    const paras = out.split('\n\n');
+    expect(paras.length).toBe(3);
+    expect(paras[0]).toBe('Token cost governance is what most teams miss and I hit it at Paystack.');
+    expect(paras[1]).toBe('On stack, TypeScript and Postgres overlap.');
+    expect(paras[2]).toBe('Worth 15 min this week?');
   });
 });
 
