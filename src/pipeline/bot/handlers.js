@@ -448,16 +448,67 @@ export async function handleReplace(id, reason) {
 
 /* ── /draft <slug>: force-draft against a company by slug ── */
 
+/**
+ * User-initiated draft against a specific company. Deliberately self-
+ * healing — the whole point of the command is to bypass the daily-cron
+ * path when the applicant knows a company they want a draft for. So:
+ *   • If no usable contact exists → promote to 'qualified' and run
+ *     enrich for JUST this company (companies/find + domain-search +
+ *     pattern probe). If that still fails, tell them why.
+ *   • If no *qualified* job exists → fall back to any 'needs_review' or
+ *     'ingested' job for the company. The user is explicitly asking to
+ *     draft this company, so we don't second-guess gate 1 here.
+ *   • Always report which fallback we took so the applicant knows the
+ *     draft is a manual override, not a normal qualified pick.
+ */
 export async function handleDraftForSlug(slug) {
   if (!slug) return 'Usage: /draft &lt;company-slug&gt;';
   const company = companyBySlug(slug);
   if (!company) return `No company with slug "${escapeHtml(slug)}".`;
 
-  const contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
-  if (contacts.length === 0) return `Company ${escapeHtml(company.name)} has no usable contact. Run /run or enrich first.`;
-  const jobs = jobsByCompany(company.id).filter(j => j.status === 'qualified')
-    .sort((a, b) => (b.score || 0) - (a.score || 0));
-  if (jobs.length === 0) return `Company ${escapeHtml(company.name)} has no qualified jobs. Run /run first.`;
+  const config = loadConfig();
+
+  // Self-heal contacts: if none, promote status to qualified so enrich
+  // will process it, then run a scoped enrich for this one company.
+  let contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
+  let contactNote = '';
+  if (contacts.length === 0) {
+    if (company.status !== 'qualified') {
+      try {
+        const { setCompanyStatus } = await import('../db/repo.js');
+        setCompanyStatus(company.id, 'qualified', { reason: 'forced by /draft <slug>' });
+      } catch { /* non-fatal */ }
+    }
+    try {
+      const { runEnrich } = await import('../enrich/index.js');
+      const stats = await runEnrich({ config, maxCompanies: 999, onlyForCompanyId: company.id });
+      contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
+      contactNote = `(auto-enriched: ${stats.contactsCreated} contact(s) created)`;
+    } catch (err) {
+      return `Auto-enrich failed for ${escapeHtml(company.name)}: ${escapeHtml(err.message)}`;
+    }
+    if (contacts.length === 0) {
+      return `Company ${escapeHtml(company.name)} has no usable contact even after auto-enrich. ` +
+             `Hunter has no data on this domain and pattern probing (founders@/hello@/team@) all failed. ` +
+             `Nothing to draft against.`;
+    }
+  }
+
+  // Self-heal jobs: prefer qualified, fall back to needs_review, then ingested.
+  const allJobs = jobsByCompany(company.id);
+  let jobs = allJobs.filter(j => j.status === 'qualified').sort((a, b) => (b.score || 0) - (a.score || 0));
+  let jobNote = '';
+  if (jobs.length === 0) {
+    jobs = allJobs.filter(j => j.status === 'needs_review');
+    if (jobs.length > 0) jobNote = ' (using needs_review job — gate 1 was ambiguous)';
+  }
+  if (jobs.length === 0) {
+    jobs = allJobs.filter(j => j.status === 'ingested');
+    if (jobs.length > 0) jobNote = ' (using ingested job — gate not yet run)';
+  }
+  if (jobs.length === 0) {
+    return `Company ${escapeHtml(company.name)} has no jobs at all. Run /run first to ingest their ATS.`;
+  }
 
   const contact = contacts[0];
   const job = jobs[0];
@@ -465,7 +516,6 @@ export async function handleDraftForSlug(slug) {
     return `A draft already exists for ${escapeHtml(company.name)}. Use /replace on it instead.`;
   }
 
-  const config = loadConfig();
   let profile;
   try { profile = loadProfile(); }
   catch (err) { return `Profile not ready: ${escapeHtml(err.message)}`; }
@@ -492,7 +542,8 @@ export async function handleDraftForSlug(slug) {
       hookVerified: hookOK,
       model: gen.model,
     });
-    return `Draft #${created.id} created for ${escapeHtml(company.name)} (hook_verified=${hookOK ? 'yes' : 'NO'}). Use /show ${created.id}.`;
+    return `Draft #${created.id} created for ${escapeHtml(company.name)} ${escapeHtml(contactNote)}${escapeHtml(jobNote)}. ` +
+           `hook_verified=${hookOK ? 'yes' : 'NO'}. Use /show ${created.id} or /preview ${created.id}.`;
   } catch (err) {
     return `Draft generation failed: ${escapeHtml(err.message)}`;
   }

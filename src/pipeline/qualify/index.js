@@ -15,7 +15,7 @@
 // that filter changes take retroactive effect. 'disqualified' and
 // 'closed' jobs are not re-evaluated.
 import {
-  jobsByStatus, companyById, wasCompanyContactedRecently,
+  jobsByStatus, companiesByStatus, companyById, wasCompanyContactedRecently,
   setJobQualifyResult, refreshCompanyScore, setCompanyStatus,
   isCompanySuppressed,
 } from '../db/repo.js';
@@ -76,8 +76,7 @@ export async function runQualify({ config } = {}) {
   // Refresh company-level scores + promote / demote.
   // Promote → 'qualified' if any job scored above threshold.
   // Demote → 'ingested' if the company was previously qualified but has
-  // no qualifying jobs left (prevents zombie companies stuck in the
-  // draft loop after filter tightening).
+  // no qualifying jobs left.
   for (const cid of touchedCompanies) {
     const s = refreshCompanyScore(cid);
     const c = companyById(cid);
@@ -85,6 +84,20 @@ export async function runQualify({ config } = {}) {
       if (c?.status !== 'qualified') setCompanyStatus(cid, 'qualified', { topScore: s });
     } else if (c?.status === 'qualified') {
       setCompanyStatus(cid, 'ingested', { reason: 'no_qualified_jobs_remaining' });
+    }
+  }
+
+  // Zombie sweep: any company still marked 'qualified' but not touched
+  // this pass (because all their jobs are already in 'disqualified' or
+  // 'closed' state) also gets demoted. Fixes the case where filter
+  // tightening left orphan companies stuck at status='qualified' with
+  // zero live jobs — they clutter /diag and waste enrich cycles.
+  for (const c of companiesByStatus('qualified')) {
+    if (touchedCompanies.has(c.id)) continue;   // handled above
+    const s = refreshCompanyScore(c.id);
+    if (s === 0) {
+      setCompanyStatus(c.id, 'ingested', { reason: 'zombie_sweep_no_qualified_jobs' });
+      stats.zombiesDemoted = (stats.zombiesDemoted || 0) + 1;
     }
   }
 

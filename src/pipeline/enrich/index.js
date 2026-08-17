@@ -5,7 +5,7 @@
 // Priority order: highest-scoring companies first. Cost guard bails cleanly
 // when the monthly Hunter budget is exhausted, without failing the run.
 import {
-  companiesByStatus, contactCountForCompany, upsertContact,
+  companiesByStatus, companyById, contactCountForCompany, upsertContact,
   updateCompanyEnrichment,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
@@ -32,8 +32,9 @@ const NO_REPLY = new Set(['noreply', 'no-reply', 'donotreply', 'do-not-reply']);
  * @param {object} args
  * @param {object} args.config
  * @param {number} [args.maxCompanies] hard cap (safety)
+ * @param {number} [args.onlyForCompanyId] scope to one company (used by /draft <slug>)
  */
-export async function runEnrich({ config, maxCompanies = 200 } = {}) {
+export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId = null } = {}) {
   const stats = {
     companiesProcessed: 0,
     contactsCreated: 0,
@@ -55,7 +56,9 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
     return stats;
   }
 
-  const companies = companiesByStatus('qualified').slice(0, maxCompanies);
+  const companies = onlyForCompanyId
+    ? [companyById(onlyForCompanyId)].filter(Boolean)
+    : companiesByStatus('qualified').slice(0, maxCompanies);
 
   for (const company of companies) {
     if (contactCountForCompany(company.id) > 0) continue;      // already enriched
