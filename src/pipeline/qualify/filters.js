@@ -150,13 +150,15 @@ export function gate1_remoteFromNigeria(job, config) {
     return { pass: false, reason: `remote_scope:${job.remote_scope}` };
   }
 
-  // Charitable pass: any hint of remote work + no US-only signal → pass.
-  // Broader 2026 remote vocabulary — real listings say "remote-first",
-  // "distributed team", "async-first", "work from anywhere" etc, not
-  // just "fully remote". Missing these was pushing ~89% of otherwise-
-  // qualified jobs into needs_review.
+  // Charitable pass: ANY mention of "remote" (word-bounded) in either
+  // location OR description + no US-only signal → pass. The deny list
+  // above is our filter for US-only postings, and the applicant can
+  // /reject <id> us only which auto-suppresses. Being too strict here
+  // was pushing ~90% of jobs into needs_review, effectively rejecting
+  // them since needs_review never becomes qualified.
   const looksRemote =
     /\bremote\b/i.test(location) ||
+    /\bremote\b/i.test(description) ||
     job.workplace_type === 'remote' ||
     job.remote_scope === 'remote' ||
     REMOTE_DESC_SIGNALS.test(description);
