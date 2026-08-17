@@ -89,7 +89,11 @@ describe('runQualify: end-to-end', () => {
     });
   });
 
-  it('marks ambiguous location as needs_review, not disqualified', () => {
+  it('marks TRULY ambiguous location (no remote signal) as needs_review', () => {
+    // Gate 1 is now charitable on bare "Remote" — that's a deliberate
+    // change so we don't bleed 96% of jobs into needs_review. This test
+    // now covers the harder case: NO remote hint anywhere in location or
+    // description. That should still be needs_review.
     const config = realConfig();
     const c = upsertCompany({
       name: 'Gamma', ats: 'lever', slug: 'gamma',
@@ -98,10 +102,11 @@ describe('runQualify: end-to-end', () => {
     upsertJob({
       companyId: c.id, externalJobId: 'G-1',
       title: 'Senior Backend Engineer',
-      locationRaw: 'Remote',                // ambiguous
+      locationRaw: 'Berlin',                // no remote hint
       remoteScope: 'unknown',
+      workplaceType: 'unknown',
       currencySignal: 'USD',
-      descriptionText: 'Node.js and Python.',
+      descriptionText: 'Node.js and Python. Team is based in Berlin.',
       postedAt: isoDaysAgo(1),
     });
 

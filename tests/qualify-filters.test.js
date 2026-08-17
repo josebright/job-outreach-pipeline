@@ -155,12 +155,16 @@ describe('Q2: remote-eligible from Nigeria (Track A)', () => {
     expect(r.reason).toContain('us only');
   });
 
-  it('marks ambiguous "Remote" without scope as needs_review', () => {
+  it('charitable-passes bare "Remote" (post gate-1 loosening)', () => {
     const job = { location_raw: 'Remote', description_text: '', remote_scope: 'unknown' };
+    expect(q2_remoteEligible(job, config, 'A').pass).toBe(true);
+  });
+
+  it('still needs_review when NO remote signal at all', () => {
+    const job = { location_raw: 'Berlin', description_text: 'in-office', remote_scope: 'unknown' };
     const r = q2_remoteEligible(job, config, 'A');
     expect(r.pass).toBe(false);
     expect(r.needsReview).toBe(true);
-    expect(r.reason).toBe('remote_ambiguous');
   });
 
   it('trusts remote_scope=africa even without an allow keyword hit', () => {

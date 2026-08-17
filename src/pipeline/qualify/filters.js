@@ -112,14 +112,27 @@ const REJECT_ROLE_MARKERS = [
 
 /**
  * The company must be able to hire the applicant remotely from Nigeria
- * without a visa or work permit. Strict deny-list first (US-only,
- * "EU citizens only", "must reside in ..."), then allow-list (worldwide,
- * anywhere, EMEA, Africa, global, fully remote), then a fallback to the
- * ATS classifier's remote_scope field. Ambiguous "Remote" alone becomes
- * needs_review (do not auto-reject).
+ * without a visa or work permit. Deny-list first (US-only, "EU citizens
+ * only", "must reside in ...", US timezone, etc.), then allow-list
+ * (worldwide, anywhere, EMEA, Africa, global, fully remote), then the
+ * ATS classifier's remote_scope field.
+ *
+ * Charitable-remote rule: if the job's location text just says "Remote"
+ * (no allow keyword hit) AND the deny-list did NOT trip, we PASS.
+ * Rationale: most ATSes only label the workplace_type; the actual
+ * geographical constraint (if any) appears in the description body, and
+ * the deny list is our filter for that. Marking bare "Remote" as
+ * needs_review was killing ~96% of qualified jobs on the last /run.
+ * If we occasionally draft to a US-only role we missed, the applicant
+ * can /reject <id> us only which now auto-suppresses.
+ *
+ * Anything truly ambiguous (no location text at all, no remote signal
+ * anywhere) still becomes needs_review.
  */
 export function gate1_remoteFromNigeria(job, config) {
-  const haystack = compact(`${job.location_raw || ''} ${job.description_text || ''}`);
+  const location = norm(job.location_raw || '');
+  const description = norm(job.description_text || '');
+  const haystack = compact(`${location} ${description}`);
   const { allow, deny } = config.location;
 
   for (const d of deny || []) {
@@ -134,6 +147,14 @@ export function gate1_remoteFromNigeria(job, config) {
   if (job.remote_scope === 'us_only' || job.remote_scope === 'onsite') {
     return { pass: false, reason: `remote_scope:${job.remote_scope}` };
   }
+
+  // Charitable pass: any hint of remote work + no US-only signal → pass.
+  const looksRemote = /\bremote\b/i.test(location)
+    || job.workplace_type === 'remote'
+    || job.remote_scope === 'remote'
+    || /\bfully\s+remote\b|\bremote-first\b|\bdistributed\s+team\b/i.test(description);
+  if (looksRemote) return { pass: true, reason: null };
+
   return { pass: false, needsReview: true, reason: 'remote_ambiguous' };
 }
 

@@ -46,12 +46,34 @@ describe('gate1_remoteFromNigeria', () => {
     expect(gate1_remoteFromNigeria(j, config).pass).toBe(true);
   });
 
-  it('marks bare "Remote" as needs_review, not disqualified', () => {
+  it('charitable-passes bare "Remote" when no US-only signal is present', () => {
+    // Was previously needs_review. Change: gate 1 is now more permissive
+    // for the plain "Remote" case so we don't bleed ~96% of jobs into
+    // a never-drafted needs_review bucket. Deny list still catches
+    // US-only postings. See qualify/filters.js note.
     const j = { location_raw: 'Remote', description_text: '', remote_scope: 'unknown' };
+    expect(gate1_remoteFromNigeria(j, config).pass).toBe(true);
+  });
+
+  it('still needs_review when there is NO remote signal anywhere', () => {
+    const j = { location_raw: 'Berlin', description_text: 'in-office 3 days/week', remote_scope: 'unknown' };
     const r = gate1_remoteFromNigeria(j, config);
     expect(r.pass).toBe(false);
     expect(r.needsReview).toBe(true);
-    expect(r.reason).toBe('remote_ambiguous');
+  });
+
+  it('bare "Remote" still fails if description contains a US-only signal', () => {
+    // The test config's deny list contains "us only" — use that phrase.
+    // Real config has richer deny (US timezone, must reside in, N. America
+    // only, etc.); those get end-to-end coverage via the integration test.
+    const j = {
+      location_raw: 'Remote',
+      description_text: 'US only. Must be authorized to work in the U.S.',
+      remote_scope: 'unknown',
+    };
+    const r = gate1_remoteFromNigeria(j, config);
+    expect(r.pass).toBe(false);
+    expect(r.reason).toMatch(/remote_(denied|scope)/);
   });
 });
 

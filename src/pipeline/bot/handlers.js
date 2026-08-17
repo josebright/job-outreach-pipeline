@@ -119,9 +119,9 @@ export function handleReject(id, reason) {
   updateDraftStatus(d.id, 'rejected', { reason: reason || 'via telegram' });
 
   // Auto-suppress if the reason indicates the company itself is wrong
-  // (too big, too small, wrong industry). Prevents the same company
-  // from re-appearing in the next /run cycle via any aggregator.
-  const shouldSuppress = /\b(too\s*big|too\s*large|too\s*small|wrong\s*(size|industry|role))\b/i
+  // (too big/small, wrong industry, US-only, onsite). Prevents the same
+  // company from re-appearing in the next /run cycle via any aggregator.
+  const shouldSuppress = /\b(too\s*big|too\s*large|too\s*small|wrong\s*(size|industry|role)|us\s*only|us\s*based|onsite|on-site|us\s*timezone|us\s*residents?|not\s*remote)\b/i
     .test(reason || '');
   let extra = '';
   if (shouldSuppress) {
