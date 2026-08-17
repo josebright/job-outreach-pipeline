@@ -273,6 +273,49 @@ export async function runEnrich({ config, maxCompanies = 200 } = {}) {
           }
         }
       }
+
+      // Final fallback: probe common founder-inbox patterns. Applies
+      // when both Hunter and posting-scrape yielded nothing. At small
+      // startups (which is exactly where email-count returns 0),
+      // founders@ / hello@ / team@ often route to the founder directly.
+      // Careers@ and info@ are excluded — those go to shared inboxes
+      // where cold outreach dies. Verify each with Hunter before
+      // storing (1 credit each). Accept 'verified' or 'risky'; skip
+      // 'invalid' or accept_all catch-all domains.
+      if (contactCountForCompany(company.id) === 0) {
+        const patterns = [
+          { local: 'founders', roleType: 'founder' },
+          { local: 'hello',    roleType: 'contact'  },
+          { local: 'team',     roleType: 'contact'  },
+        ];
+        for (const p of patterns) {
+          try { charge(PROVIDER, 1, budget); }
+          catch (err) {
+            if (err.name === 'BudgetExceededError') { stats.budgetExceeded = true; break; }
+            throw err;
+          }
+          const email = `${p.local}@${domain}`;
+          const v = await emailVerifier({ email });
+          if (v.status === 'invalid') continue;
+          const { created } = upsertContact({
+            companyId: company.id,
+            fullName: null,
+            title: null,
+            roleType: p.roleType,
+            email,
+            emailStatus: v.status,
+            source: 'pattern_probe',
+            raw: { pattern: p.local, verification: v.raw },
+          });
+          if (created) {
+            stats.contactsCreated++;
+            stats.patternProbed = (stats.patternProbed || 0) + 1;
+            if (v.status === 'verified') stats.verified++;
+            else stats.risky++;
+          }
+          break;   // one pattern hit per company
+        }
+      }
     } catch (err) {
       if (err.name === 'BudgetExceededError') {
         logger.warn({ used: err.used, budget: err.budget }, 'hunter budget exhausted, stopping');

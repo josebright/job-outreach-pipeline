@@ -151,14 +151,23 @@ export function gate1_remoteFromNigeria(job, config) {
   }
 
   // Charitable pass: any hint of remote work + no US-only signal → pass.
-  const looksRemote = /\bremote\b/i.test(location)
-    || job.workplace_type === 'remote'
-    || job.remote_scope === 'remote'
-    || /\bfully\s+remote\b|\bremote-first\b|\bdistributed\s+team\b/i.test(description);
+  // Broader 2026 remote vocabulary — real listings say "remote-first",
+  // "distributed team", "async-first", "work from anywhere" etc, not
+  // just "fully remote". Missing these was pushing ~89% of otherwise-
+  // qualified jobs into needs_review.
+  const looksRemote =
+    /\bremote\b/i.test(location) ||
+    job.workplace_type === 'remote' ||
+    job.remote_scope === 'remote' ||
+    REMOTE_DESC_SIGNALS.test(description);
   if (looksRemote) return { pass: true, reason: null };
 
   return { pass: false, needsReview: true, reason: 'remote_ambiguous' };
 }
+
+// Kept in sync with ingest/ats/classify.js REMOTE_TEXT_SIGNALS so both
+// layers recognise the same 2026 remote-signal vocabulary.
+const REMOTE_DESC_SIGNALS = /\b(fully\s+remote|100%\s+remote|remote[-\s]first|remote[-\s]friendly|distributed\s+team|globally\s+distributed|work\s+from\s+anywhere|anywhere\s+in\s+the\s+world|async[-\s]first|hire\s+globally|hire\s+anywhere|we['\s]re\s+(fully\s+)?remote|we\s+are\s+(fully\s+)?remote|remote\s+(role|position|team|company|opportunity|first))\b/i;
 
 /* ─── Gate 2: Pay ≥ minimum in USD/EUR/GBP ─────────────────── */
 
