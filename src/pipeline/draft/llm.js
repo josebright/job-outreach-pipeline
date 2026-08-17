@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { env } from '../config/loader.js';
+import { pickDraftVariant } from './variant.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,7 +75,14 @@ export async function generateDraft({
   const anthropic = getClient();
   const system = loadSystemPrompt(promptVersion);
 
+  // Pick which structural variant this company gets. Deterministic per
+  // company.slug so the same company always gets the same shape (no
+  // A/B contamination across contacts) — but different companies rotate
+  // between V1/V2/V3, avoiding the "every email looks the same" tell.
+  const variant = pickDraftVariant(company.slug, company.size_band);
+
   const userPayload = {
+    variant,
     // The EXACT job title as it appears in the ATS. The subject line MUST
     // use this string verbatim — do not infer a title from the posting
     // text, which often lists sibling roles at the same company.
@@ -113,6 +121,7 @@ export async function generateDraft({
     hookEvidence: sanitizeAsciiTypography(String(hook_evidence || '').trim()),
     model,
     promptVersion,
+    variant,
     rawUsage: res.usage || null,
   };
 }

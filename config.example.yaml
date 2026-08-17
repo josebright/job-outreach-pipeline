@@ -133,7 +133,7 @@ llm:
   drafts_model: claude-sonnet-4-6
   classifier_provider: gemini
   classifier_model: gemini-2.0-flash
-  prompt_version: outreach_v1
+  prompt_version: outreach_v2      # 3-variant rotation to avoid template fatigue
   monthly_budget: 500          # cap on generateDraft calls per month
 
 # ── Send ───────────────────────────────────────────────────────
