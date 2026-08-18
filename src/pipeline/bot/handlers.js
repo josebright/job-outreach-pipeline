@@ -39,10 +39,11 @@ export function handleList() {
     const company = contact ? companyById(contact.company_id) : null;
     const flag = d.hook_verified ? '' : ' hook-unverified';
     const stateMark = d.status === 'approved' ? '[APPROVED]' : '[pending]';
+    const emailBadge = contact?.email_status ? ` [${escapeHtml(contact.email_status)}]` : '';
     lines.push(
       `#${d.id} ${stateMark}${flag}`,
       `  ${escapeHtml((company?.name || '?').slice(0, 30))} score=${company?.score ?? '?'}`,
-      `  to: ${escapeHtml(contact?.email || '?')} (${contact?.role_type || '?'})`,
+      `  to: ${escapeHtml(contact?.email || '?')}${emailBadge} (${contact?.role_type || '?'})`,
       `  ${escapeHtml((d.subject || '').slice(0, 60))}`,
       '',
     );
@@ -62,6 +63,7 @@ export function handleShow(id) {
     `<b>Draft #${d.id}</b>  status=${d.status}  hook_verified=${d.hook_verified ? 'yes' : 'NO'}`,
     `<b>Company:</b> ${escapeHtml(company?.name || '?')}  (score ${company?.score ?? '?'})`,
     `<b>Contact:</b> ${escapeHtml(contact?.full_name || 'unknown')} &lt;${escapeHtml(contact?.email || '?')}&gt;`,
+    `<b>Email status:</b> ${escapeHtml(contact?.email_status || 'unknown')}`,
     `<b>Role:</b> ${escapeHtml(contact?.role_type || '?')}  <b>Title:</b> ${escapeHtml(contact?.title || '?')}`,
     job ? `<b>Job:</b> ${escapeHtml(job.title || '?')}\n<b>URL:</b> ${escapeHtml(job.url || '?')}` : '',
     '',
@@ -214,7 +216,7 @@ export async function handleSend() {
       `initial: ${stats.initialSent}`,
       `followup1: ${stats.followup1Sent}`,
       `followup2: ${stats.followup2Sent}`,
-      `blocked (approval/suppressed/cap): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}`,
+      `blocked (approval/suppressed/cap/unverified): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}/${stats.blockedUnverified}`,
       stats.paused ? '<b>PAUSED</b> by bounce alarm.' : '',
     ].filter(Boolean).join('\n');
   } catch (err) {
@@ -465,6 +467,13 @@ export async function handleDraftForSlug(slug) {
   if (!slug) return 'Usage: /draft &lt;company-slug&gt;';
   const company = companyBySlug(slug);
   if (!company) return `No company with slug "${escapeHtml(slug)}".`;
+  // Suppression is Gate 0 for the auto-cron path (qualify/index.js). The
+  // manual /draft slug path must honor it too, or a suppressed company can
+  // be resurrected by name — burning Hunter credits, LLM credits, and (if
+  // ultimately approved) sender reputation on a domain already known bad.
+  if (isCompanySuppressed(company.id)) {
+    return `Company <b>${escapeHtml(company.name)}</b> is suppressed. Use /unblock ${escapeHtml(company.slug)} first if you want to draft against it.`;
+  }
 
   const config = loadConfig();
 

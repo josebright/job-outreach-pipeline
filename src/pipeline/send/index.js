@@ -40,12 +40,22 @@ export async function sendApprovedDraft({
   fromName = null, fromEmail = null, replyTo = null,
   threadId = null, inReplyTo = null, references = null,
   counterKind = null,
+  recipientEmailStatus = null, minEmailStatus = null,
 }) {
   if (draft.status !== 'approved' && kind === 'initial') {
     throw new SendBlockedError('draft_not_approved', { draftId: draft.id, status: draft.status });
   }
   if (isSuppressed(recipientEmail)) {
     throw new SendBlockedError('recipient_suppressed', { recipientEmail });
+  }
+  // Deliverability gate. When a min is configured, the recipient must meet
+  // it. Fail-closed: missing status is treated as not meeting the bar.
+  // Protects sender reputation — one risky send during warm-up can trip the
+  // 3% bounce alarm and pause the whole pipeline.
+  if (minEmailStatus && !meetsMinStatus(recipientEmailStatus, minEmailStatus)) {
+    throw new SendBlockedError('recipient_unverified', {
+      recipientEmail, emailStatus: recipientEmailStatus, required: minEmailStatus,
+    });
   }
   // `counterKind` routes cap accounting into a separate bucket (e.g., the
   // research-role bucket) without changing the message.kind stored on the
@@ -99,8 +109,9 @@ export async function runSend({ config } = {}) {
   const stats = {
     replies: null, paused: false,
     initialSent: 0, researchSent: 0, followup1Sent: 0, followup2Sent: 0,
-    blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, errors: 0,
+    blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, blockedUnverified: 0, errors: 0,
   };
+  const minEmailStatus = config?.enrichment?.min_email_status_for_auto_send || null;
 
   // 1. Reply + bounce poll.
   try { stats.replies = await pollReplies({ config }); }
@@ -150,6 +161,7 @@ export async function runSend({ config } = {}) {
       await sendApprovedDraft({
         draft, recipientEmail: contact.email, kind: 'initial', caps, transport,
         fromEmail: from, fromName, replyTo,
+        recipientEmailStatus: contact.email_status, minEmailStatus,
       });
       stats.initialSent++;
     } catch (err) {
@@ -167,6 +179,7 @@ export async function runSend({ config } = {}) {
         draft, recipientEmail: contact.email, kind: 'initial', caps, transport,
         fromEmail: from, fromName, replyTo,
         counterKind: 'initial_research',
+        recipientEmailStatus: contact.email_status, minEmailStatus,
       });
       stats.researchSent++;
     } catch (err) {
@@ -188,6 +201,7 @@ export async function runSend({ config } = {}) {
         threadId: init?.thread_id || null,
         inReplyTo: init?.message_id ? `<${init.message_id}>` : null,
         references: init?.message_id ? `<${init.message_id}>` : null,
+        recipientEmailStatus: contact.email_status, minEmailStatus,
       });
       stats.followup1Sent++;
     } catch (err) {
@@ -209,6 +223,7 @@ export async function runSend({ config } = {}) {
         threadId: init?.thread_id || null,
         inReplyTo: init?.message_id ? `<${init.message_id}>` : null,
         references: init?.message_id ? `<${init.message_id}>` : null,
+        recipientEmailStatus: contact.email_status, minEmailStatus,
       });
       stats.followup2Sent++;
     } catch (err) {
@@ -226,12 +241,21 @@ function catchBlocked(err, stats) {
     if (err.reason === 'draft_not_approved') stats.blockedApproval++;
     else if (err.reason === 'recipient_suppressed') stats.blockedSuppressed++;
     else if (err.reason === 'daily_cap_reached') stats.blockedCap++;
+    else if (err.reason === 'recipient_unverified') stats.blockedUnverified++;
     else stats.errors++;
     logger.warn({ reason: err.reason, detail: err.detail }, 'send blocked');
     return;
   }
   stats.errors++;
   logger.error({ err: err.message }, 'send errored');
+}
+
+// 'verified' is the strict tier; 'risky' includes verified + risky. Anything
+// else (invalid, null, unknown, accept_all) fails the check.
+function meetsMinStatus(actual, min) {
+  if (min === 'verified') return actual === 'verified';
+  if (min === 'risky')    return actual === 'verified' || actual === 'risky';
+  return true;
 }
 
 function initialMessageFor(draftId) {
