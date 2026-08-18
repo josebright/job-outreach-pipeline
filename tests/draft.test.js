@@ -127,6 +127,11 @@ describe('runDraft', () => {
     const stats = await runDraft({ config });
     expect(stats.draftsCreated).toBe(0);
     expect(draftsByStatus('pending_review').length).toBe(0);
+    // Telemetry: SKIP must count in its own bucket, not conflate with hookFailed.
+    // Prior bug: empty hookEvidence on SKIP bumped hookFailed, masking the real
+    // failure mode when investigating "0 drafts produced" in production.
+    expect(stats.skippedLlmSkip).toBe(1);
+    expect(stats.hookFailed).toBe(0);
   });
 
   it('skips a company that already has a draft for the same contact+job', async () => {

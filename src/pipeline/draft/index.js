@@ -36,7 +36,8 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
   const stats = {
     companiesConsidered: 0,
     draftsCreated: 0,
-    hookFailed: 0,
+    hookFailed: 0,            // real draft persisted but quote didn't verify
+    skippedLlmSkip: 0,        // LLM returned "SKIP:" (no bridge/hook available)
     skippedNoContact: 0,
     skippedNoJob: 0,
     skippedExisting: 0,
@@ -168,13 +169,23 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
           hookEvidence: gen.hookEvidence,
           sourceText: topJob.description_text || '',
         });
-        if (!hookOK) stats.hookFailed++;
 
-        // If the LLM opted to skip, do not persist anything and log why.
+        // SKIP takes precedence over hook check. A SKIP is a deliberate no-
+        // draft signal (no bridge from profile achievements to this JD, or
+        // personalization floor unmet) — not a hook-verification failure.
+        // Counting them together made the failure mode invisible.
         if (/^SKIP:/i.test(gen.body)) {
-          logger.warn({ contactId: contact.id, reason: gen.body }, 'draft skipped by LLM');
+          stats.skippedLlmSkip++;
+          logger.warn({
+            contactId: contact.id, companyId: company.id, companyName: company.name,
+            jobTitle: topJob.title, reason: gen.body, hookEvidence: gen.hookEvidence,
+          }, 'draft skipped by LLM');
           continue;
         }
+
+        // hookFailed only applies to persisted drafts (still saved with
+        // hook_verified=0 so the reviewer sees it flagged).
+        if (!hookOK) stats.hookFailed++;
 
         createDraft({
           contactId: contact.id,
