@@ -14,6 +14,7 @@ import {
   domainSearch, emailVerifier as hunterVerifier, mapHunterStatus,
   emailCount, companyEnrich, employeesToBand,
 } from './hunter.js';
+import { detectMailProvider, interpretVerifierStatus } from './mail-provider.js';
 
 // Alias so both usages in this file (Hunter primary + posting-scrape verify) read cleanly.
 const emailVerifier = hunterVerifier;
@@ -26,6 +27,44 @@ const PROVIDER = 'hunter';
 
 // Local parts we never accept even as a last-resort fallback.
 const NO_REPLY = new Set(['noreply', 'no-reply', 'donotreply', 'do-not-reply']);
+
+/**
+ * Priority-tiered pattern list for empty-Hunter-index domains. Higher
+ * tiers try decision-maker addresses first (founders/CEO/CTO), then
+ * small-team inboxes (hello/team), then recruiting (hr/hiring), then
+ * a last-resort shared inbox tier (careers/jobs) only for the smallest
+ * companies where those often route to the founder anyway.
+ *
+ * We stop at the FIRST hit — total credits spent per company is bounded
+ * by how many patterns we try before one verifies, worst case ~9.
+ */
+function buildPatternTiers(company) {
+  const band = String(company?.size_band || '').toLowerCase();
+  const isSmall = /^(1-10|11-50|1-50|2-10|small)$/.test(band) || band === '';
+
+  const tiers = [];
+  // Tier 1: decision-makers (works best at small co's)
+  tiers.push({ local: 'founders', roleType: 'founder' });
+  tiers.push({ local: 'founder',  roleType: 'founder' });
+  if (isSmall) {
+    tiers.push({ local: 'ceo', roleType: 'founder' });
+    tiers.push({ local: 'cto', roleType: 'founder' });
+  }
+  // Tier 2: small-team inboxes
+  tiers.push({ local: 'hello', roleType: 'contact' });
+  tiers.push({ local: 'team',  roleType: 'contact' });
+  // Tier 3: recruiting / talent
+  tiers.push({ local: 'hr',       roleType: 'recruiter' });
+  tiers.push({ local: 'hiring',   roleType: 'recruiter' });
+  tiers.push({ local: 'talent',   roleType: 'recruiter' });
+  // Tier 4: last-resort shared inbox — only for very small companies
+  // where careers@ often is the founder anyway. Skipped for mid+.
+  if (isSmall) {
+    tiers.push({ local: 'careers', roleType: 'recruiter' });
+    tiers.push({ local: 'jobs',    roleType: 'recruiter' });
+  }
+  return tiers;
+}
 
 /**
  * Run enrichment against all qualified companies, in company.score order.
@@ -75,6 +114,11 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
       }
     }
     if (!domain) { stats.skippedNoDomain++; continue; }
+
+    // Detect mail provider once per company. Used later to interpret
+    // Hunter's accept_all responses correctly for Google Workspace,
+    // M365, Cloudflare Email Routing (all lie about being catch-all).
+    const provider = await detectMailProvider(domain).catch(() => 'other');
 
     try {
       // 0. FREE pre-check: Hunter's own guidance is to call email-count
@@ -197,11 +241,13 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
         let rawVer = emailData.verification || null;
 
         if (emailData.verification?.status) {
-          statusLabel = mapHunterStatus(emailData.verification.status);
+          // Provider-aware interpretation: accept_all on Google/M365 is
+          // a provider artifact, not a real catch-all.
+          statusLabel = interpretVerifierStatus(emailData.verification.status, provider);
         } else {
           charge(PROVIDER, 1, budget);
           const v = await emailVerifier({ email: emailData.value });
-          statusLabel = v.status;
+          statusLabel = interpretVerifierStatus(v.raw?.status || v.status, provider);
           rawVer = v.raw;
         }
 
@@ -277,43 +323,41 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
         }
       }
 
-      // Final fallback: probe common founder-inbox patterns. Applies
-      // when both Hunter and posting-scrape yielded nothing. At small
-      // startups (which is exactly where email-count returns 0),
-      // founders@ / hello@ / team@ often route to the founder directly.
-      // Careers@ and info@ are excluded — those go to shared inboxes
-      // where cold outreach dies. Verify each with Hunter before
-      // storing (1 credit each). Accept 'verified' or 'risky'; skip
-      // 'invalid' or accept_all catch-all domains.
+      // Final fallback: probe common decision-maker inbox patterns in
+      // priority tiers. Applies when Hunter's domain-search + posting-
+      // scrape both yielded nothing. Tiered so we spend credits on
+      // highest-value addresses first, stop at the first hit.
+      //
+      // Provider-aware accept_all handling: Google Workspace, M365, and
+      // Cloudflare Email Routing all lie about being catch-all on RCPT
+      // TO probes. For those providers, Hunter's `accept_all` really
+      // means "we can't tell" — we accept as 'risky', not 'invalid'.
+      // See enrich/mail-provider.js.
       if (contactCountForCompany(company.id) === 0) {
-        const patterns = [
-          { local: 'founders', roleType: 'founder' },
-          { local: 'hello',    roleType: 'contact'  },
-          { local: 'team',     roleType: 'contact'  },
-        ];
-        for (const p of patterns) {
+        for (const p of buildPatternTiers(company)) {
           try { charge(PROVIDER, 1, budget); }
           catch (err) {
             if (err.name === 'BudgetExceededError') { stats.budgetExceeded = true; break; }
             throw err;
           }
           const email = `${p.local}@${domain}`;
-          const v = await emailVerifier({ email });
-          if (v.status === 'invalid') continue;
+          const raw = await emailVerifier({ email });
+          const status = interpretVerifierStatus(raw.raw?.status || raw.status, provider);
+          if (status === 'invalid') continue;
           const { created } = upsertContact({
             companyId: company.id,
             fullName: null,
             title: null,
             roleType: p.roleType,
             email,
-            emailStatus: v.status,
+            emailStatus: status,
             source: 'pattern_probe',
-            raw: { pattern: p.local, verification: v.raw },
+            raw: { pattern: p.local, provider, verification: raw.raw },
           });
           if (created) {
             stats.contactsCreated++;
             stats.patternProbed = (stats.patternProbed || 0) + 1;
-            if (v.status === 'verified') stats.verified++;
+            if (status === 'verified') stats.verified++;
             else stats.risky++;
           }
           break;   // one pattern hit per company

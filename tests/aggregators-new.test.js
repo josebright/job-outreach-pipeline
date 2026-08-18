@@ -26,7 +26,9 @@ beforeEach(() => {
 describe('hn.parseHiringComment', () => {
   it('extracts company from a standard "Company | Role | Remote" comment', () => {
     const c = hn.parseHiringComment('<p>Vercel | Senior Frontend Engineer | REMOTE | Stack: React, Next.js');
-    expect(c).toEqual({ companyName: 'Vercel' });
+    expect(c.companyName).toBe('Vercel');
+    expect(c.title).toContain('Frontend Engineer');
+    expect(c.location).toMatch(/REMOTE|Remote/i);
   });
 
   it('handles em dash and en dash separators', () => {

@@ -52,14 +52,16 @@ export async function fetchCompanies({ maxTeamSize = 500, onlyActive = true } = 
       const key = name.toLowerCase();
       if (seen.has(key)) continue;
 
-      // Hint: we don't get an ATS URL from YC, but the website often
-      // links out to /careers or /jobs which we can probe later.
+      // YC's API doesn't include jobs. We add the company; the user can
+      // /addjob or the ATS-discovery loop can still find live openings
+      // if the company happens to be on one of our 5 supported ATSes.
       seen.set(key, {
         companyName: name,
-        url: c.website || null,
         source,
-        hint: null,      // YC doesn't give us an ATS slug directly
+        hint: null,          // YC doesn't give us an ATS slug directly
+        website: c.website ? new URL(c.website).hostname.replace(/^www\./, '') : null,
         sizeBand: teamSizeToBand(teamSize),
+        jobs: [],            // no per-job data from YC
       });
     }
 

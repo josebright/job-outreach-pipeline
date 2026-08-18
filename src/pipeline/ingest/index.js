@@ -16,6 +16,9 @@ export async function runIngest({ statusFilter = ['discovered', 'ingested', 'qua
   for (const status of statusFilter) {
     const companies = companiesByStatus(status);
     for (const company of companies) {
+      // 'external' companies came in via aggregator with their jobs
+      // already attached — no ATS to poll. Skip re-ingestion.
+      if (company.ats === 'external') continue;
       try {
         const ats = getAts(company.ats);
         const jobs = await ats.fetchJobs(company.slug);
