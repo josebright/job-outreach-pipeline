@@ -269,6 +269,24 @@ export async function handleDiag() {
     SELECT status, COUNT(*) AS n FROM draft GROUP BY status
   `).all();
 
+  // Per-variant telemetry. Segments sends/replies by the prompt variant
+  // (V1_OBSERVATION / V2_QUESTION / V3_DIRECT) that produced each draft.
+  // Only meaningful once N >= ~50 per variant — reply-rate below that
+  // is dominated by noise. Reply-rate column shown even at small N for
+  // observability, but do NOT tune subjects based on it until sample
+  // size crosses the noise floor.
+  const variantStats = db.prepare(`
+    SELECT
+      COALESCE(d.variant, 'unknown') AS variant,
+      COUNT(DISTINCT d.id) AS drafts_created,
+      COUNT(DISTINCT m.id) AS sent,
+      COUNT(DISTINCT CASE WHEN m.replied_at IS NOT NULL THEN m.id END) AS replied
+    FROM draft d
+    LEFT JOIN message m ON m.draft_id = d.id AND m.direction = 'outbound' AND m.kind = 'initial'
+    GROUP BY variant
+    ORDER BY drafts_created DESC
+  `).all();
+
   // Budgets this month.
   const hunterBudget = usage('hunter',   config.enrichment?.monthly_budget ?? 2000);
   const anthroBudget = usage('anthropic', config.llm?.monthly_budget ?? 500);
@@ -289,6 +307,13 @@ export async function handleDiag() {
     '',
     '<b>Drafts by status</b>',
     ...drafts.map(r => `  ${r.status.padEnd(14)} ${r.n}`),
+    '',
+    '<b>Prompt variants</b> (drafts / sent / replied / reply-rate)',
+    ...variantStats.map(r => {
+      const rate = r.sent > 0 ? ((r.replied / r.sent) * 100).toFixed(1) + '%' : '—';
+      const flag = r.sent < 50 ? ' [small-N]' : '';
+      return `  ${String(r.variant).padEnd(16)} ${r.drafts_created} / ${r.sent} / ${r.replied} / ${rate}${flag}`;
+    }),
     '',
     '<b>Budgets this month</b>',
     `  hunter:    ${hunterBudget.units}/${hunterBudget.budget} used (${hunterBudget.remaining} left)`,
@@ -441,6 +466,7 @@ export async function handleReplace(id, reason) {
       hookEvidence: gen.hookEvidence,
       hookVerified: hookOK,
       model: gen.model,
+      variant: gen.variant,
     });
     return `Draft ${draftId} rejected. New draft #${created.id} created (hook_verified=${hookOK ? 'yes' : 'NO'}). Use /show ${created.id}.`;
   } catch (err) {
@@ -550,6 +576,7 @@ export async function handleDraftForSlug(slug) {
       hookEvidence: gen.hookEvidence,
       hookVerified: hookOK,
       model: gen.model,
+      variant: gen.variant,
     });
     return `Draft #${created.id} created for ${escapeHtml(company.name)} ${escapeHtml(contactNote)}${escapeHtml(jobNote)}. ` +
            `hook_verified=${hookOK ? 'yes' : 'NO'}. Use /show ${created.id} or /preview ${created.id}.`;

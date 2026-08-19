@@ -355,22 +355,23 @@ export function contactById(id) {
 export function createDraft({
   contactId, jobId = null, subject, body,
   promptVersion, hookEvidence = null, hookVerified = false, model = null,
+  variant = null,
 }) {
   const db = getDb();
   const result = db.prepare(`
     INSERT INTO draft (
       contact_id, job_id, subject, body, prompt_version,
-      hook_evidence, hook_verified, model, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')
+      hook_evidence, hook_verified, model, variant, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')
   `).run(
     contactId, jobId, subject, body, promptVersion,
-    hookEvidence, hookVerified ? 1 : 0, model,
+    hookEvidence, hookVerified ? 1 : 0, model, variant,
   );
   recordEvent({
     entity: 'draft',
     entityId: result.lastInsertRowid,
     event: 'draft_created',
-    detail: { contactId, jobId, model, promptVersion, hookVerified },
+    detail: { contactId, jobId, model, promptVersion, variant, hookVerified },
   });
   return { id: result.lastInsertRowid };
 }

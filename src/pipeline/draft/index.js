@@ -196,6 +196,7 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
           hookEvidence: gen.hookEvidence,
           hookVerified: hookOK,
           model: gen.model,
+          variant: gen.variant,
         });
         stats.draftsCreated++;
       } catch (err) {

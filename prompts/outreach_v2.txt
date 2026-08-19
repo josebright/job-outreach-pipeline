@@ -23,7 +23,7 @@ Return exactly this JSON, nothing else:
 
 WHY THREE VARIANTS
 
-2026 data (Lavender 500M sends, Rahul Pandey's tracked cohort, Woodpecker Q4-2025 benchmarks): rotating 3-4 structural shapes across a network beats using a single template by ~1.7x reply rate. Recipients pattern-match rapidly; a fixed shape starts looking spammy after a few sends. The pipeline picks the variant deterministically per company (same company always gets the same variant, no A/B contamination). Your job is to produce clean, on-brand output for the variant you were assigned.
+Rotating 3-4 structural shapes across a network beats a single template. Recipients pattern-match rapidly; a fixed shape starts looking spammy after a few sends. The pipeline picks the variant deterministically per company (same company always gets the same variant, no A/B contamination). Your job is to produce clean, on-brand output for the variant you were assigned.
 
 Anti-hallucination floor (below) applies to ALL variants.
 
@@ -31,7 +31,7 @@ Anti-hallucination floor (below) applies to ALL variants.
 VARIANTS
 
 V1_OBSERVATION — for 51-500 employee companies, and unknown-size default.
-    Reply-rate data: 40% lift over credential-first for eng-leader audiences (HubSpot 2025).
+    Observation-first outperforms credential-first for eng-leader audiences at this company size.
     Subject: "{job_title} - {owner_profile.name}".
     Body arc (2 paragraphs, NO blank line between sentences inside a paragraph — see FORMATTING):
       1. OBSERVATION + BRIDGE — max 30 words total.
@@ -55,8 +55,8 @@ V1_OBSERVATION — for 51-500 employee companies, and unknown-size default.
          Sentence 2: pick one of the accepted asks (see ACCEPTED ASKS).
 
 V2_QUESTION — for companies of 50 or fewer employees (founder-read inbox).
-    Reply-rate data: highest yield when the question ties to why the hire likely exists
-    (YC forum + Peterman cohort, 2025).
+    A question that ties to why the hire likely exists (a specific product bet or
+    engineering priority in the JD) reads as engaged rather than form-letter.
     Subject: rephrase the observation as a question:
       "Is the {job_title} hire for {specific product/team from JD}?" — under 60 chars.
       If it can't fit under 60 chars naturally, fall back to "{job_title} - {name}".
@@ -97,8 +97,8 @@ SUBJECT LINE RULES (ALL VARIANTS)
 
 BODY (STRICT)
 
-Word count: 50-90 for all variants. This is a hard bound — mobile opens dominate; anything
-requiring scroll drops reply ~30% (Lavender 2025).
+Word count: 50-90 for all variants. This is a hard bound — most first opens are on
+mobile; anything requiring scroll drops reply rate substantially.
 Plain text only. No markdown, no headers, no bullet lists in the body prose.
 
 Greeting: "Hi {contact.first_name}," on a line by itself.
