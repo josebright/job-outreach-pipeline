@@ -4,7 +4,7 @@
 // 7bit ASCII, so receiving clients rendered "—" as "Ã¢Â€Â\"".
 import { describe, it, expect } from 'vitest';
 import { sanitizeAsciiTypography, collapseHardWraps } from '../src/pipeline/draft/llm.js';
-import { encodeHeader, buildMime } from '../src/pipeline/send/gmail.js';
+import { encodeHeader, buildMime, bodyToMinimalHtml } from '../src/pipeline/send/gmail.js';
 
 describe('sanitizeAsciiTypography', () => {
   it('replaces em dash with " - "', () => {
@@ -141,13 +141,54 @@ describe('encodeHeader (RFC 2047)', () => {
 });
 
 describe('buildMime', () => {
-  it('sets Content-Transfer-Encoding: 8bit (not 7bit)', () => {
+  it('sends multipart/alternative with both text/plain and text/html parts', () => {
+    // Gmail iOS renders text/plain in a fixed-width container that wraps
+    // at ~55 chars regardless of viewport, producing jagged orphan lines.
+    // Multipart/alternative lets the HTML part reflow to viewport while
+    // preserving the plain text alternative for text-only clients and
+    // spam filters. See RFC 3676 / vxlabs analysis of format=flowed.
     const mime = buildMime({
       from: 'bright@capacitydey.org', fromName: 'Uchenna',
       to: 'test@example.com', subject: 'Plain subject', body: 'plain body',
     });
-    expect(mime).toContain('Content-Transfer-Encoding: 8bit');
+    expect(mime).toMatch(/Content-Type: multipart\/alternative; boundary="bnd_/);
+    expect(mime).toMatch(/Content-Type: text\/plain; charset=UTF-8/);
+    expect(mime).toMatch(/Content-Type: text\/html; charset=UTF-8/);
+    // Boundary appears three times (open, mid, close).
+    const boundaryMatches = mime.match(/--bnd_[a-z0-9_]+/g) || [];
+    expect(boundaryMatches.length).toBe(3);
+  });
+
+  it('keeps 8bit encoding for both parts (never 7bit)', () => {
+    const mime = buildMime({
+      from: 'bright@capacitydey.org', fromName: 'Uchenna',
+      to: 'test@example.com', subject: 'Plain subject', body: 'plain body',
+    });
+    // Both MIME parts declare 8bit; there should be no 7bit anywhere.
+    expect((mime.match(/Content-Transfer-Encoding: 8bit/g) || []).length).toBeGreaterThanOrEqual(2);
     expect(mime).not.toContain('Content-Transfer-Encoding: 7bit');
+  });
+
+  it('does NOT declare format=flowed (Gmail iOS ignores it; declaring is a footgun without space-terminated soft breaks)', () => {
+    const mime = buildMime({
+      from: 'x@x.com', fromName: 'X', to: 't@x.com', subject: 's', body: 'b',
+    });
+    expect(mime).not.toContain('format=flowed');
+  });
+
+  it('HTML part has no CSS, no tables, no <img>, no tracking pixels', () => {
+    const mime = buildMime({
+      from: 'x@x.com', fromName: 'X', to: 't@x.com', subject: 's',
+      body: 'First paragraph.\n\nSecond paragraph with https://example.com/link',
+    });
+    const htmlPart = mime.split('Content-Type: text/html')[1] || '';
+    expect(htmlPart).not.toMatch(/<style\b/i);
+    expect(htmlPart).not.toMatch(/style\s*=/i);
+    expect(htmlPart).not.toMatch(/<table\b/i);
+    expect(htmlPart).not.toMatch(/<img\b/i);
+    expect(htmlPart).not.toMatch(/width\s*=/i);
+    expect(htmlPart).not.toMatch(/pixel|tracker|beacon/i);
+    expect(htmlPart).toMatch(/<p>/);
   });
 
   it('encodes a non-ASCII subject as an RFC 2047 encoded-word', () => {
@@ -162,11 +203,10 @@ describe('buildMime', () => {
   it('encodes a non-ASCII From display name', () => {
     const mime = buildMime({
       from: 'jane@example.com',
-      fromName: 'José Kim',    // "José Kim"
+      fromName: 'José Kim',
       to: 'test@example.com',
       subject: 'Hi', body: 'x',
     });
-    // The display name is RFC 2047 encoded, sitting before the angle-addressed email.
     expect(mime).toMatch(/^From: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?= <jane@example\.com>/m);
   });
 
@@ -190,5 +230,38 @@ describe('buildMime', () => {
       replyTo: 'from@x.com',
     });
     expect(same).not.toContain('Reply-To:');
+  });
+});
+
+describe('bodyToMinimalHtml', () => {
+  it('wraps each paragraph in <p>', () => {
+    const html = bodyToMinimalHtml('Para one.\n\nPara two.');
+    expect(html).toBe('<p>Para one.</p>\n<p>Para two.</p>');
+  });
+
+  it('converts single \\n inside a paragraph to <br> (preserves signature line breaks)', () => {
+    const html = bodyToMinimalHtml('Uchenna\nhttps://example.com');
+    expect(html).toContain('Uchenna<br>');
+  });
+
+  it('linkifies bare http/https URLs', () => {
+    const html = bodyToMinimalHtml('Site: https://example.com/x');
+    expect(html).toContain('<a href="https://example.com/x">https://example.com/x</a>');
+  });
+
+  it('escapes HTML in body text (no injection)', () => {
+    const html = bodyToMinimalHtml('Interested in <script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('returns <p></p> for empty body', () => {
+    expect(bodyToMinimalHtml('')).toBe('<p></p>');
+    expect(bodyToMinimalHtml(null)).toBe('<p></p>');
+  });
+
+  it('drops empty paragraphs', () => {
+    const html = bodyToMinimalHtml('one.\n\n\n\ntwo.');
+    expect(html).toBe('<p>one.</p>\n<p>two.</p>');
   });
 });

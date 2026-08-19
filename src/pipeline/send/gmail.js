@@ -37,9 +37,26 @@ export function encodeHeader(value) {
 }
 
 /**
- * Build an RFC 5322 message. Plain-text only. Handles UTF-8 in subject,
- * display name, and body correctly (was previously declaring 7bit while
- * shipping 8-bit bytes, which caused mojibake at receiving mail clients).
+ * Build an RFC 5322 multipart/alternative message. We send BOTH a
+ * text/plain part and a minimal text/html part.
+ *
+ * Why not plain-text only: Gmail iOS renders text/plain in a fixed-width
+ * container that wraps at ~55 chars regardless of viewport, producing
+ * jagged one-word orphan lines even when our body is a single long
+ * paragraph. Gmail iOS is documented as non-compliant with RFC 3676
+ * format=flowed reflow (vxlabs, Bynens 2019-2024), so declaring
+ * format=flowed doesn't help — and if the body isn't space-terminated
+ * per the spec it actively hurts by turning every \n into a hard break.
+ *
+ * Why not HTML-only: cold outreach from a new sender to a founder inbox
+ * scores lower with HTML-only content. The plain-text part maintains
+ * the "hand-typed" trust signal for filters and text-only clients.
+ *
+ * The HTML part is deliberately minimal: <p> per paragraph, one <a>
+ * for the signature URL. No CSS, no tables, no images, no tracking
+ * pixels. Gmail (all clients) picks the HTML part and reflows to
+ * viewport. Text-only clients and spam filters see the clean plain
+ * text alternative.
  */
 export function buildMime({ from, fromName, to, subject, body, replyTo = null, inReplyTo = null, references = null }) {
   const encodedSubject = encodeHeader(subject);
@@ -49,18 +66,85 @@ export function buildMime({ from, fromName, to, subject, body, replyTo = null, i
         : `"${fromName}" <${from}>`)
     : from;
 
+  const boundary = mimeBoundary();
+  const plainBody = body;
+  const htmlBody = bodyToMinimalHtml(body);
+
   const headers = [
     `From: ${fromHeader}`,
     `To: ${to}`,
     `Subject: ${encodedSubject}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8; format=flowed',
-    'Content-Transfer-Encoding: 8bit',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ];
   if (replyTo && replyTo !== from) headers.push(`Reply-To: ${replyTo}`);
   if (inReplyTo) headers.push(`In-Reply-To: ${inReplyTo}`);
   if (references) headers.push(`References: ${references}`);
-  return `${headers.join('\r\n')}\r\n\r\n${body}\r\n`;
+
+  const parts = [
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    plainBody,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    htmlBody,
+    '',
+    `--${boundary}--`,
+    '',
+  ].join('\r\n');
+
+  return `${headers.join('\r\n')}\r\n\r\n${parts}`;
+}
+
+/**
+ * Render our plain-text body as minimal semantic HTML. One <p> per
+ * paragraph (paragraphs are separated by blank lines in the source).
+ * Bare URLs and email addresses become clickable <a>. No CSS, no
+ * width attribute, no tables, no wrapper div. Gmail will reflow the
+ * <p> tags to viewport width naturally.
+ *
+ * Exported for tests.
+ */
+export function bodyToMinimalHtml(body) {
+  if (!body) return '<p></p>';
+  const paragraphs = String(body).split(/\n{2,}/);
+  const rendered = paragraphs
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(p => {
+      // Inside a paragraph, preserve line breaks (e.g., signature block
+      // with URL on its own line). Convert single \n to <br>.
+      const withBreaks = escapeHtmlText(p).replace(/\n/g, '<br>');
+      // Linkify bare URLs (http/https). Deliberately narrow to avoid
+      // wrapping ambiguous strings.
+      const linked = withBreaks.replace(
+        /(https?:\/\/[^\s<>"]+)/g,
+        '<a href="$1">$1</a>',
+      );
+      return `<p>${linked}</p>`;
+    })
+    .join('\n');
+  return rendered;
+}
+
+function escapeHtmlText(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+// Boundary must be unique enough to never appear in the body. Timestamp +
+// random slice is standard.
+function mimeBoundary() {
+  return `bnd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /**
