@@ -51,11 +51,23 @@ export async function sendApprovedDraft({
   // Deliverability gate. When a min is configured, the recipient must meet
   // it. Fail-closed: missing status is treated as not meeting the bar.
   // Protects sender reputation — one risky send during warm-up can trip the
-  // 3% bounce alarm and pause the whole pipeline.
+  // bounce alarm and pause the whole pipeline.
+  //
+  // Per-draft override: if the applicant explicitly /approved this draft
+  // via Telegram, they've seen the [risky] badge in /list and are giving
+  // informed consent. Bypass the gate for THIS draft only and log an
+  // event so the risky send is attributable if it bounces.
   if (minEmailStatus && !meetsMinStatus(recipientEmailStatus, minEmailStatus)) {
-    throw new SendBlockedError('recipient_unverified', {
-      recipientEmail, emailStatus: recipientEmailStatus, required: minEmailStatus,
-    });
+    if (draft.deliverability_override) {
+      recordEvent({
+        entity: 'draft', entityId: draft.id, event: 'deliverability_override_used',
+        detail: { recipientEmail, emailStatus: recipientEmailStatus, required: minEmailStatus },
+      });
+    } else {
+      throw new SendBlockedError('recipient_unverified', {
+        recipientEmail, emailStatus: recipientEmailStatus, required: minEmailStatus,
+      });
+    }
   }
   // `counterKind` routes cap accounting into a separate bucket (e.g., the
   // research-role bucket) without changing the message.kind stored on the

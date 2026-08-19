@@ -7,6 +7,7 @@ import {
   updateDraftStatus, createDraft,
   companyBySlug, setCompanySizeManual,
   suppressCompany, unsuppressCompany, isCompanySuppressed, listSuppressedCompanies,
+  setDraftDeliverabilityOverride,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
@@ -60,7 +61,7 @@ export function handleShow(id) {
   const job = d.job_id ? jobById(d.job_id) : null;
 
   return [
-    `<b>Draft #${d.id}</b>  status=${d.status}  hook_verified=${d.hook_verified ? 'yes' : 'NO'}`,
+    `<b>Draft #${d.id}</b>  status=${d.status}  hook_verified=${d.hook_verified ? 'yes' : 'NO'}${d.deliverability_override ? '  <b>deliverability_override=yes</b>' : ''}`,
     `<b>Company:</b> ${escapeHtml(company?.name || '?')}  (score ${company?.score ?? '?'})`,
     `<b>Contact:</b> ${escapeHtml(contact?.full_name || 'unknown')} &lt;${escapeHtml(contact?.email || '?')}&gt;`,
     `<b>Email status:</b> ${escapeHtml(contact?.email_status || 'unknown')}`,
@@ -112,7 +113,16 @@ export function handleApprove(id) {
   if (!d) return `Draft ${id} not found.`;
   if (d.status !== 'pending_review') return `Draft ${id} is <b>${d.status}</b>, not pending_review.`;
   updateDraftStatus(d.id, 'approved');
-  return `Draft ${d.id} approved. Use /send to fire it now, or leave it for the next auto-send cron.`;
+  // Manual /approve = informed consent. The applicant already saw the
+  // [risky]/[verified] badge in /list before typing this command, so we
+  // treat approval as an override of the min_email_status_for_auto_send
+  // gate for this specific draft. Auto-cron approvals (none exist today)
+  // would leave this bit at 0 and still respect the gate.
+  setDraftDeliverabilityOverride(d.id, true);
+  const contact = contactById(d.contact_id);
+  const badge = contact?.email_status === 'verified' ? '' :
+    `\n<i>Recipient is <b>${escapeHtml(contact?.email_status || 'unknown')}</b> — your approval overrides the deliverability gate. Bounces will auto-suppress the contact.</i>`;
+  return `Draft ${d.id} approved. Use /send to fire it now, or leave it for the next auto-send cron.${badge}`;
 }
 
 export function handleReject(id, reason) {

@@ -406,6 +406,17 @@ export function updateDraftContent(id, { subject, body }) {
 }
 
 /**
+ * Set the per-draft deliverability override. When true, sendApprovedDraft
+ * lets a risky recipient through the min_email_status_for_auto_send gate.
+ * Called by handleApprove (Telegram) to encode informed consent — the
+ * applicant already saw the [risky] badge in /list before approving.
+ */
+export function setDraftDeliverabilityOverride(id, override = true) {
+  getDb().prepare('UPDATE draft SET deliverability_override = ? WHERE id = ?')
+    .run(override ? 1 : 0, id);
+}
+
+/**
  * Any pending_review draft for this contact+job (used to skip re-draft).
  */
 export function existingDraftFor(contactId, jobId) {
