@@ -140,7 +140,14 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       continue;
     }
 
-    for (const contact of contacts.slice(0, 1)) {          // top 1 contact per company
+    // Try contacts in priority order until one produces a draft.
+    // Only ONE draft is created per company per run (break after success).
+    // If the best contact already has a live draft (pending/approved/sent),
+    // fall through to the next — this handles the case where a NEW contact
+    // was discovered for a company whose original contact was already emailed.
+    let drafted = false;
+    for (const contact of contacts) {
+      if (drafted) break;
       if (existingDraftFor(contact.id, topJob.id)) {
         stats.skippedExisting++;
         continue;
@@ -199,6 +206,7 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
           variant: gen.variant,
         });
         stats.draftsCreated++;
+        drafted = true;
       } catch (err) {
         stats.errors++;
         logger.error({ err: err.message, contactId: contact.id }, 'draft generation failed');

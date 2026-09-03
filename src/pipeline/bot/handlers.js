@@ -279,6 +279,40 @@ export async function handleDiag() {
     SELECT status, COUNT(*) AS n FROM draft GROUP BY status
   `).all();
 
+  // Gate kill breakdown: top disqualify reasons across all jobs, ranked by
+  // frequency. This is the single most useful thing for understanding why the
+  // qualification rate is low — it shows which gate is doing most of the killing.
+  const gateKills = db.prepare(`
+    SELECT
+      COALESCE(disqualify_reason, 'qualified') AS reason,
+      COUNT(*) AS n
+    FROM job
+    WHERE status IN ('disqualified', 'needs_review', 'qualified')
+    GROUP BY reason
+    ORDER BY n DESC
+    LIMIT 12
+  `).all();
+
+  // Draft stall: qualified companies that have contacts but no pending/approved
+  // draft. These are "stuck" — they have everything needed for a draft but
+  // nothing is being generated. Common causes: existing sent/rejected draft
+  // (pipeline skips re-draft), hook-verify fail, or LLM budget.
+  const stalled = db.prepare(`
+    SELECT co.name, co.slug,
+      (SELECT status FROM draft d JOIN contact c ON c.id = d.contact_id
+       WHERE c.company_id = co.id ORDER BY d.id DESC LIMIT 1) AS last_draft_status,
+      (SELECT COUNT(*) FROM contact c WHERE c.company_id = co.id AND c.email_status != 'invalid') AS usable_contacts
+    FROM company co
+    WHERE co.status = 'qualified'
+      AND EXISTS (
+        SELECT 1 FROM contact c WHERE c.company_id = co.id AND c.email_status != 'invalid'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM draft d JOIN contact c ON c.id = d.contact_id
+        WHERE c.company_id = co.id AND d.status IN ('pending_review', 'approved')
+      )
+  `).all();
+
   // 14-day funnel: uses event_log timestamps to show per-stage kill rates.
   // Each row answers: how many units moved through this stage in the last 14 days?
   // "discovered" is companies first inserted; "qualified" is companies that passed
@@ -358,6 +392,16 @@ export async function handleDiag() {
     '',
     '<b>Drafts by status</b>',
     ...drafts.map(r => `  ${r.status.padEnd(14)} ${r.n}`),
+    '',
+    '<b>Gate kill breakdown</b> (top disqualify reasons)',
+    ...gateKills.map(r => `  ${String(r.n).padStart(4)}  ${escapeHtml(r.reason)}`),
+    '',
+    '<b>Draft-stalled companies</b> (qualified + contacts, no pending draft)',
+    stalled.length === 0
+      ? '  none — all eligible companies have a pending or approved draft'
+      : stalled.map(r =>
+          `  ${escapeHtml(r.slug)}  contacts=${r.usable_contacts}  last=${escapeHtml(r.last_draft_status || 'never')}`
+        ).join('\n'),
     '',
     '<b>14-day pipeline funnel</b>',
     `  discovered  ${f14.discovered}`,
