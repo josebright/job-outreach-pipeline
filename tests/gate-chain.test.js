@@ -55,11 +55,14 @@ describe('gate1_remoteFromNigeria', () => {
     expect(gate1_remoteFromNigeria(j, config).pass).toBe(true);
   });
 
-  it('still needs_review when there is NO remote signal anywhere', () => {
+  it('charitable-passes even when NO remote signal anywhere (final charitable pass)', () => {
+    // gate1 used to return needs_review for Berlin + in-office jobs. That
+    // was a dead end: 776 jobs stuck in remote_ambiguous, never qualifying.
+    // Final charitable pass: no deny-list signal = pass through to gate3.
+    // The applicant can /reject <id> us only to auto-suppress afterwards.
     const j = { location_raw: 'Berlin', description_text: 'in-office 3 days/week', remote_scope: 'unknown' };
     const r = gate1_remoteFromNigeria(j, config);
-    expect(r.pass).toBe(false);
-    expect(r.needsReview).toBe(true);
+    expect(r.pass).toBe(true);
   });
 
   it('bare "Remote" still fails if description contains a US-only signal', () => {

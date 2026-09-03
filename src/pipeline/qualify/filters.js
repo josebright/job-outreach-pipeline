@@ -164,7 +164,15 @@ export function gate1_remoteFromNigeria(job, config) {
     REMOTE_DESC_SIGNALS.test(description);
   if (looksRemote) return { pass: true, reason: null };
 
-  return { pass: false, needsReview: true, reason: 'remote_ambiguous' };
+  // Final charitable pass: if we reached here, there is no US-only/onsite
+  // signal (deny-list didn't fire) and no positive remote signal either.
+  // These jobs came through SERP dork queries that included "remote" and
+  // "worldwide" — the COMPANY is remote-friendly even if this specific
+  // posting body omits the word. needs_review was a dead end: jobs re-
+  // evaluate every run, always return remote_ambiguous, and never qualify.
+  // Pass them through to gate3 where the role title will do the real
+  // filtering. Applicant can /reject <id> us only which auto-suppresses.
+  return { pass: true, reason: null };
 }
 
 // Kept in sync with ingest/ats/classify.js REMOTE_TEXT_SIGNALS so both

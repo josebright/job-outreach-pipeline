@@ -89,20 +89,25 @@ describe('runQualify: end-to-end', () => {
     });
   });
 
-  it('marks TRULY ambiguous location (no remote signal) as needs_review', () => {
-    // Gate 1 is now charitable on bare "Remote" — that's a deliberate
-    // change so we don't bleed 96% of jobs into needs_review. This test
-    // now covers the harder case: NO remote hint anywhere in location or
-    // description. That should still be needs_review.
+  it('charitable-passes a job with no remote signal (final charitable pass qualifies it)', () => {
+    // gate1 final charitable pass: no deny-list signal → pass through.
+    // needs_review was a dead end: 776 jobs stuck in remote_ambiguous,
+    // never qualifying on subsequent runs. A Berlin + no-remote-signal job
+    // now reaches gate3 where the role title does the real filtering.
+    // The applicant can /reject <id> us only to auto-suppress afterwards.
     const config = realConfig();
+    // Enough score signals to clear threshold once gate1 lets it through:
+    // nigeria_presence(30) + size_sweet_spot(20) + seed_stage_bonus(5)
+    // + recency(15) + stack_overlap(10) = 80 > 40.
     const c = upsertCompany({
       name: 'Gamma', ats: 'lever', slug: 'gamma',
       source: 'seed', hqCountry: 'US',
+      sizeBand: '11-50', nigeriaPresence: true,
     });
     upsertJob({
       companyId: c.id, externalJobId: 'G-1',
       title: 'Senior Backend Engineer',
-      locationRaw: 'Berlin',                // no remote hint
+      locationRaw: 'Berlin',                // no remote hint — still passes gate1
       remoteScope: 'unknown',
       workplaceType: 'unknown',
       currencySignal: 'USD',
@@ -111,10 +116,9 @@ describe('runQualify: end-to-end', () => {
     });
 
     return runQualify({ config }).then(stats => {
-      expect(stats.needsReview).toBe(1);
+      expect(stats.needsReview).toBe(0);
       const job = jobById(1);
-      expect(job.status).toBe('needs_review');
-      expect(job.disqualify_reason).toBe('remote_ambiguous');
+      expect(job.status).toBe('qualified');
     });
   });
 

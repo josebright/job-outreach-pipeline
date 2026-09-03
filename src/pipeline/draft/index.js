@@ -44,6 +44,7 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     skippedBadTitle: 0,       // defensive Q1 rejected the top job's title
     skippedTooBig: 0,         // company size resolved to >500 during draft
     errors: 0,
+    firstError: null,           // first error message seen, for /run surface
     budgetExceeded: false,
   };
 
@@ -209,7 +210,8 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
         drafted = true;
       } catch (err) {
         stats.errors++;
-        logger.error({ err: err.message, contactId: contact.id }, 'draft generation failed');
+        if (!stats.firstError) stats.firstError = err.message;
+        logger.error({ err: err.message, contactId: contact.id, companyId: company.id, companyName: company.name }, 'draft generation failed');
       }
     }
   }

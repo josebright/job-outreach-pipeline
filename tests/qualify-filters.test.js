@@ -160,11 +160,12 @@ describe('Q2: remote-eligible from Nigeria (Track A)', () => {
     expect(q2_remoteEligible(job, config, 'A').pass).toBe(true);
   });
 
-  it('still needs_review when NO remote signal at all', () => {
+  it('charitable-passes even when NO remote signal at all (final charitable pass)', () => {
+    // gate1 final charitable pass: no deny-list signal means pass through.
+    // needs_review was a dead end (never qualified on subsequent runs).
     const job = { location_raw: 'Berlin', description_text: 'in-office', remote_scope: 'unknown' };
     const r = q2_remoteEligible(job, config, 'A');
-    expect(r.pass).toBe(false);
-    expect(r.needsReview).toBe(true);
+    expect(r.pass).toBe(true);
   });
 
   it('trusts remote_scope=africa even without an allow keyword hit', () => {

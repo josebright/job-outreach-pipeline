@@ -19,20 +19,43 @@ gates:
 # ── Stack fit (Q1 filter) ──────────────────────────────────────
 stack:
   keywords:
+    # Role titles — mirror of ROLE_MARKERS so a valid engineering title
+    # always satisfies the keyword check even when the job description
+    # doesn't explicitly list a stack (common at early-stage startups).
     - software engineer
+    - software developer
     - backend engineer
+    - frontend engineer
     - fullstack engineer
+    - founding engineer
+    - product engineer
+    - research engineer
+    - web engineer
+    - mobile engineer
+    - swe
+    # Primary stack
     - node
     - nodejs
     - python
     - typescript
+    - javascript
     - react
     - nestjs
     - prisma
     - postgresql
+    - postgres
     - flutter
     - redis
     - bullmq
+    # Common adjacent tech at remote-first startups
+    - golang
+    - docker
+    - sql
+    - graphql
+    - aws
+    - gcp
+    # Location signals (existing — help jobs where the description
+    # restates the remote nature without listing a specific stack)
     - remote
     - worldwide
   seniority_accept: [senior, staff, principal, lead, sr, sr., "mid-senior"]

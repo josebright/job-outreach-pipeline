@@ -509,9 +509,18 @@ export async function handleRun() {
     `draft:    ${JSON.stringify(stats.draft || {})}`,
   ];
   if (drafts === 0) {
-    lines.push('',
-      '<b>No drafts produced.</b> Hunter returned no usable contacts for any qualified company on this pass. ' +
-      'Try /addcompany with a specific LinkedIn URL, or wait for the next discovery cycle.');
+    const d = stats.draft || {};
+    const reasons = [];
+    if (d.errors > 0)           reasons.push(`${d.errors} draft error(s): ${escapeHtml(d.firstError || 'see Railway logs')}`);
+    if (d.skippedLlmSkip > 0)   reasons.push(`${d.skippedLlmSkip} skipped by LLM (no hook/bridge found)`);
+    if (d.skippedNoContact > 0) reasons.push(`${d.skippedNoContact} companies had no usable contact`);
+    if (d.skippedNoJob > 0)     reasons.push(`${d.skippedNoJob} companies had no qualified job`);
+    if (d.skippedBadTitle > 0)  reasons.push(`${d.skippedBadTitle} companies all failed defensive Q1`);
+    if (d.skippedTooBig > 0)    reasons.push(`${d.skippedTooBig} companies too large (>500)`);
+    if (d.budgetExceeded)       reasons.push('Anthropic monthly budget exhausted');
+    if (d.companiesConsidered === 0) reasons.push('no qualified companies in DB yet — run discover/qualify first');
+    const why = reasons.length > 0 ? reasons.join('; ') : 'all companies already have live drafts or were skipped';
+    lines.push('', `<b>No drafts produced.</b> ${why}. Use /diag for pool details.`);
   } else {
     lines.push('', `Use /list to review the ${drafts} new draft(s).`);
   }
