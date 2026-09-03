@@ -108,6 +108,17 @@ describe('interpretVerifierStatus', () => {
     expect(interpretVerifierStatus('accept_all', 'zoho')).toBe('invalid');
   });
 
+  it('accept_all on other provider is downgraded to risky when personalCount >= 3', () => {
+    expect(interpretVerifierStatus('accept_all', 'other', 3)).toBe('risky');
+    expect(interpretVerifierStatus('accept_all', 'zoho', 5)).toBe('risky');
+  });
+
+  it('accept_all on other provider stays invalid when personalCount < 3', () => {
+    expect(interpretVerifierStatus('accept_all', 'other', 2)).toBe('invalid');
+    expect(interpretVerifierStatus('accept_all', 'other', 0)).toBe('invalid');
+    expect(interpretVerifierStatus('accept_all', 'other', null)).toBe('invalid');
+  });
+
   it('unknown / webmail / risky all normalize to risky', () => {
     for (const s of ['unknown', 'webmail', 'risky']) {
       expect(interpretVerifierStatus(s, 'google')).toBe('risky');

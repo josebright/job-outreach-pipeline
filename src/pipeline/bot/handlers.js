@@ -279,6 +279,47 @@ export async function handleDiag() {
     SELECT status, COUNT(*) AS n FROM draft GROUP BY status
   `).all();
 
+  // 14-day funnel: uses event_log timestamps to show per-stage kill rates.
+  // Each row answers: how many units moved through this stage in the last 14 days?
+  // "discovered" is companies first inserted; "qualified" is companies that passed
+  // all ICP gates; "contacted" is unique companies that got ≥1 non-invalid email;
+  // "drafted" is new draft_created events; "sent" is new sent events.
+  const f14 = {
+    discovered: db.prepare(`
+      SELECT COUNT(*) AS n FROM event_log
+      WHERE entity = 'company' AND event = 'discovered'
+        AND at >= datetime('now', '-14 days')
+    `).get().n,
+    qualified: db.prepare(`
+      SELECT COUNT(*) AS n FROM event_log
+      WHERE entity = 'company' AND event = 'qualified'
+        AND at >= datetime('now', '-14 days')
+    `).get().n,
+    contacted: db.prepare(`
+      SELECT COUNT(DISTINCT ct.company_id) AS n
+      FROM event_log e
+      JOIN contact ct ON ct.id = e.entity_id
+      WHERE e.entity = 'contact' AND e.event = 'created'
+        AND e.at >= datetime('now', '-14 days')
+        AND ct.email_status != 'invalid'
+    `).get().n,
+    drafted: db.prepare(`
+      SELECT COUNT(*) AS n FROM event_log
+      WHERE entity = 'draft' AND event = 'draft_created'
+        AND at >= datetime('now', '-14 days')
+    `).get().n,
+    sent: db.prepare(`
+      SELECT COUNT(*) AS n FROM event_log
+      WHERE entity = 'draft' AND event = 'sent'
+        AND at >= datetime('now', '-14 days')
+    `).get().n,
+  };
+
+  function pct(num, den) {
+    if (!den) return '—';
+    return ((num / den) * 100).toFixed(0) + '%';
+  }
+
   // Per-variant telemetry. Segments sends/replies by the prompt variant
   // (V1_OBSERVATION / V2_QUESTION / V3_DIRECT) that produced each draft.
   // Only meaningful once N >= ~50 per variant — reply-rate below that
@@ -317,6 +358,17 @@ export async function handleDiag() {
     '',
     '<b>Drafts by status</b>',
     ...drafts.map(r => `  ${r.status.padEnd(14)} ${r.n}`),
+    '',
+    '<b>14-day pipeline funnel</b>',
+    `  discovered  ${f14.discovered}`,
+    `  qualified   ${f14.qualified}  (${pct(f14.qualified, f14.discovered)} of discovered)`,
+    `  contacted   ${f14.contacted}  (${pct(f14.contacted, f14.qualified)} of qualified)`,
+    `  drafted     ${f14.drafted}  (${pct(f14.drafted, f14.contacted)} of contacted)`,
+    `  sent        ${f14.sent}  (${pct(f14.sent, f14.drafted)} of drafted)`,
+    f14.discovered === 0 ? '  ⚠ No new companies in 14 days — run /run to discover' : '',
+    f14.qualified === 0 && f14.discovered > 0 ? '  ⚠ All new companies failed ICP gates — check gate3/gate4' : '',
+    f14.contacted === 0 && f14.qualified > 0 ? '  ⚠ Qualified companies got no usable contacts — enrich budget or accept_all' : '',
+    f14.drafted === 0 && f14.contacted > 0 ? '  ⚠ Contacts found but no drafts — check LLM budget or hook-verify' : '',
     '',
     '<b>Prompt variants</b> (drafts / sent / replied / reply-rate)',
     ...variantStats.map(r => {

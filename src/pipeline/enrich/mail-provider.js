@@ -45,21 +45,34 @@ export async function detectMailProvider(domain, { resolver = dns } = {}) {
 }
 
 /**
- * Given Hunter's raw status and the mail provider, return our normalized
- * label. Overrides `accept_all` from 'invalid' to 'risky' for providers
- * that lie about being catch-all.
+ * Given Hunter's raw status, the mail provider, and an optional personal
+ * email count from email-count, return our normalized label.
+ *
+ * Two reasons we demote accept_all from 'invalid' to 'risky':
+ *   1. Provider: Google / M365 / Cloudflare lie about being catch-all (SMTP
+ *      anti-enumeration). Their accept_all is a provider artifact, not a
+ *      confirmed catch-all server.
+ *   2. Evidence: even for other providers, if Hunter has ≥3 personal emails
+ *      indexed for this domain, real mailboxes clearly exist there.
+ *      Accepting as 'risky' lets us send with care rather than discarding
+ *      a domain that has proven human presence.
+ *
+ * @param {string} hunterStatus
+ * @param {string} provider  — from detectMailProvider()
+ * @param {number|null} [personalCount] — personal email count from email-count endpoint
  */
-export function interpretVerifierStatus(hunterStatus, provider) {
+export function interpretVerifierStatus(hunterStatus, provider, personalCount = null) {
   const s = String(hunterStatus || '').toLowerCase();
   if (s === 'deliverable' || s === 'valid') return 'verified';
   if (s === 'undeliverable' || s === 'disposable') return 'invalid';
   if (s === 'accept_all') {
     // Google / M365 / Cloudflare habitually answer 250 OK to any RCPT.
-    // Treat as risky (unknown deliverability) rather than confirmed
-    // catch-all — real mailboxes at these providers pass fine.
     if (provider === 'google' || provider === 'microsoft' || provider === 'cloudflare') {
       return 'risky';
     }
+    // For other providers, if Hunter has indexed ≥3 personal emails for
+    // this domain, real mailboxes exist — treat as risky, not invalid.
+    if (personalCount != null && personalCount >= 3) return 'risky';
     return 'invalid';
   }
   // webmail / risky / unknown / anything else

@@ -242,12 +242,13 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
 
         if (emailData.verification?.status) {
           // Provider-aware interpretation: accept_all on Google/M365 is
-          // a provider artifact, not a real catch-all.
-          statusLabel = interpretVerifierStatus(emailData.verification.status, provider);
+          // a provider artifact, not a real catch-all. Pass personal count
+          // so even non-Google domains with real mailboxes are kept.
+          statusLabel = interpretVerifierStatus(emailData.verification.status, provider, count.personal);
         } else {
           charge(PROVIDER, 1, budget);
           const v = await emailVerifier({ email: emailData.value });
-          statusLabel = interpretVerifierStatus(v.raw?.status || v.status, provider);
+          statusLabel = interpretVerifierStatus(v.raw?.status || v.status, provider, count.personal);
           rawVer = v.raw;
         }
 
@@ -342,7 +343,7 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
           }
           const email = `${p.local}@${domain}`;
           const raw = await emailVerifier({ email });
-          const status = interpretVerifierStatus(raw.raw?.status || raw.status, provider);
+          const status = interpretVerifierStatus(raw.raw?.status || raw.status, provider, count.personal);
           if (status === 'invalid') continue;
           const { created } = upsertContact({
             companyId: company.id,

@@ -141,10 +141,13 @@ discover:
   monthly_query_budget: 500
   ats_platforms: [greenhouse, lever, ashby, workable, smartrecruiters]
   # remotive + remoteok = job-board aggregators
-  # hn  = Hacker News "Ask HN: Who is hiring?" monthly thread
-  # yc  = Y Combinator public company directory (all sizes, we filter to ≤500)
-  # wwr = We Work Remotely programming RSS feed
-  aggregator_feeds: [remotive, remoteok, hn, yc, wwr]
+  # hn             = Hacker News "Ask HN: Who is hiring?" monthly thread
+  # yc             = Y Combinator public company directory (all sizes, we filter to ≤500)
+  # wwr            = We Work Remotely programming RSS feed
+  # hunter_discover = Hunter /v2/discover (FREE, no credits) — companies actively hiring,
+  #                   filtered by headcount 11-500 + job_openings.hiring:true + last 7 days.
+  #                   Returns 403 if your tier doesn't support it (run continues without it).
+  aggregator_feeds: [remotive, remoteok, hn, yc, wwr, hunter_discover]
   seed_csv_path: data/seed_companies.csv
 
 # ── Enrichment ─────────────────────────────────────────────────

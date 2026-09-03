@@ -105,8 +105,8 @@ const discoverSchema = z.object({
   ats_platforms: z.array(z.enum(['greenhouse', 'lever', 'ashby', 'workable', 'smartrecruiters'])).default([
     'greenhouse', 'lever', 'ashby', 'workable', 'smartrecruiters',
   ]),
-  aggregator_feeds: z.array(z.enum(['remotive', 'remoteok', 'wwr', 'hn', 'yc'])).default([
-    'remotive', 'remoteok', 'hn', 'yc', 'wwr',
+  aggregator_feeds: z.array(z.enum(['remotive', 'remoteok', 'wwr', 'hn', 'yc', 'hunter_discover'])).default([
+    'remotive', 'remoteok', 'hn', 'yc', 'wwr', 'hunter_discover',
   ]),
   seed_csv_path: z.string().optional(),
 });
