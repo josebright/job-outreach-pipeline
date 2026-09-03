@@ -139,7 +139,7 @@ currency:
 
 # ── Scoring ────────────────────────────────────────────────────
 scoring:
-  threshold: 40
+  threshold: 20
   weights:
     nigeria_presence: 30
     explicit_salary: 15
