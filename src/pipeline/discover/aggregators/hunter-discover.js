@@ -19,8 +19,8 @@ export const source = 'hunter_discover';
 const HOST = 'api.hunter.io';
 const limit = hostLimiter(HOST, 1);
 
-// ICP filter: same headcount bands as gate4_companySize allowlist.
-const HEADCOUNT_BANDS = ['11-50', '51-200', '201-500'];
+// ICP filter: 1-500 employees (gate4_companySize handles the upper bound).
+const HEADCOUNT_BANDS = ['1-10', '11-50', '51-200', '201-500'];
 
 // Keywords signal remote-friendly engineering roles. Hunter treats these as
 // OR within the include array, so any hit qualifies. Keep broad so we don't
@@ -116,9 +116,10 @@ export async function fetchCompanies({ pages = 3 } = {}) {
 export function normalizeBand(headcount) {
   if (headcount == null) return null;
   const s = String(headcount).replace(/_/g, '-');
-  if (s === '11-50' || s === '51-200' || s === '201-500') return s;
+  if (s === '1-10' || s === '11-50' || s === '51-200' || s === '201-500') return s;
   const n = Number(s.replace(/[^0-9]/g, ''));
   if (!n) return null;
+  if (n <= 10)  return '1-10';
   if (n <= 50)  return '11-50';
   if (n <= 200) return '51-200';
   if (n <= 500) return '201-500';

@@ -19,6 +19,7 @@ beforeEach(() => { vi.resetAllMocks(); });
 
 describe('normalizeBand', () => {
   it('passes through canonical band strings', () => {
+    expect(normalizeBand('1-10')).toBe('1-10');
     expect(normalizeBand('11-50')).toBe('11-50');
     expect(normalizeBand('51-200')).toBe('51-200');
     expect(normalizeBand('201-500')).toBe('201-500');
@@ -28,6 +29,7 @@ describe('normalizeBand', () => {
     expect(normalizeBand('51_200')).toBe('51-200');
   });
   it('maps numeric headcount to correct band', () => {
+    expect(normalizeBand(5)).toBe('1-10');
     expect(normalizeBand(25)).toBe('11-50');
     expect(normalizeBand(100)).toBe('51-200');
     expect(normalizeBand(300)).toBe('201-500');
