@@ -36,7 +36,6 @@ stack:
     # Primary stack
     - node
     - nodejs
-    - python
     - typescript
     - javascript
     - react
@@ -48,7 +47,6 @@ stack:
     - redis
     - bullmq
     # Common adjacent tech at remote-first startups
-    - golang
     - docker
     - sql
     - graphql
