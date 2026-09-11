@@ -22,6 +22,7 @@ import { charge, usage } from './cost-guard.js';
 import { queriesFor, rankPerson, roleTypeForTitle, isSmallCo } from './target.js';
 import { contactsFromPosting, roleTypeFromLocalPart } from './from-posting.js';
 import { guessDomain } from './domain-guess.js';
+import { isAtsHost } from '../util/ats-domains.js';
 
 const PROVIDER = 'hunter';
 
@@ -396,9 +397,10 @@ export function deriveDomain(company) {
   if (row?.url) {
     try {
       const u = new URL(row.url);
-      // ATS-hosted URLs (boards.greenhouse.io/acme) are not the company's real
-      // domain. Skip those.
-      if (/greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com/.test(u.hostname)) return null;
+      // ATS-hosted URLs (boards.greenhouse.io/acme,
+      // api.smartrecruiters.com/v1/companies/acme/postings/...) are not the
+      // company's real domain. Skip those — see util/ats-domains.js.
+      if (isAtsHost(u.hostname)) return null;
       return u.hostname.replace(/^www\./, '');
     } catch { /* ignore */ }
   }

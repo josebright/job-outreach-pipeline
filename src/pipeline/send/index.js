@@ -21,6 +21,7 @@ import { draftsDueForFollowup, followupBody, threadedSubject } from './follow-up
 import { pollReplies, isPaused } from './reply-detect.js';
 import { effectiveCap } from './warmup.js';
 import { isResearchRole } from '../qualify/roles.js';
+import { isAtsEmail } from '../util/ats-domains.js';
 
 export class SendBlockedError extends Error {
   constructor(reason, detail = {}) {
@@ -47,6 +48,16 @@ export async function sendApprovedDraft({
   }
   if (isSuppressed(recipientEmail)) {
     throw new SendBlockedError('recipient_suppressed', { recipientEmail });
+  }
+  // An address at an ATS / job-board host (founders@api.smartrecruiters.com)
+  // is a pattern-probe artifact, never a real inbox. deriveDomain no longer
+  // produces these, but rows created before that fix still sit in the DB and
+  // are already attached to approved drafts. Sending one is a guaranteed
+  // bounce, and bounces trip the alarm that pauses the entire pipeline — so
+  // this stays as a hard guard on the single send path rather than relying
+  // on upstream cleanup alone. Not overridable by /approve.
+  if (isAtsEmail(recipientEmail)) {
+    throw new SendBlockedError('recipient_ats_domain', { recipientEmail });
   }
   // Deliverability gate. When a min is configured, the recipient must meet
   // it. Fail-closed: missing status is treated as not meeting the bar.
@@ -121,7 +132,8 @@ export async function runSend({ config } = {}) {
   const stats = {
     replies: null, paused: false,
     initialSent: 0, researchSent: 0, followup1Sent: 0, followup2Sent: 0,
-    blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, blockedUnverified: 0, errors: 0,
+    blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, blockedUnverified: 0,
+    blockedAtsDomain: 0, errors: 0,
   };
   const minEmailStatus = config?.enrichment?.min_email_status_for_auto_send || null;
 
@@ -254,6 +266,7 @@ function catchBlocked(err, stats) {
     else if (err.reason === 'recipient_suppressed') stats.blockedSuppressed++;
     else if (err.reason === 'daily_cap_reached') stats.blockedCap++;
     else if (err.reason === 'recipient_unverified') stats.blockedUnverified++;
+    else if (err.reason === 'recipient_ats_domain') stats.blockedAtsDomain++;
     else stats.errors++;
     logger.warn({ reason: err.reason, detail: err.detail }, 'send blocked');
     return;

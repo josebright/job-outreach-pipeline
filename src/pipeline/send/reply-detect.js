@@ -276,33 +276,96 @@ function markBounce(msg, bouncedEmail) {
 
 /* ── bounce alarm ──────────────────────────────────────────── */
 
-function maybePauseOnBounceAlarm(config, _stats) {
-  const cap = config.send?.bounce_rate_alarm_pct ?? 3;
-  const db = getDb();
-  const row = db.prepare(`
+// Window the bounce rate is measured over.
+const BOUNCE_WINDOW_DAYS = 7;
+// Minimum recent volume before the rate is meaningful at all.
+const MIN_SENDS_FOR_ALARM = 10;
+// How long a pause holds before lifting on its own. Deliberately matched to
+// BOUNCE_WINDOW_DAYS: once the offending sends age out of the measurement
+// window there is nothing left to measure, so holding the pause forever just
+// strands the queue with no way to ever clear it. Every poll re-evaluates, so
+// a still-unhealthy window simply re-arms the pause.
+const PAUSE_COOLDOWN_DAYS = 7;
+
+const nowEpoch = () => Math.floor(Date.now() / 1000);
+
+/** 7-day outbound bounce rate. Exported for /diag. */
+export function bounceRate() {
+  const row = getDb().prepare(`
     SELECT
       SUM(CASE WHEN bounced = 1 THEN 1 ELSE 0 END) * 1.0 AS bounces,
       COUNT(*) * 1.0 AS total
     FROM message
     WHERE direction = 'outbound' AND kind IN ('initial','followup_1','followup_2')
-      AND sent_at > datetime('now', '-7 days')
-  `).get();
+      AND sent_at > datetime('now', ?)
+  `).get(`-${BOUNCE_WINDOW_DAYS} days`);
   const total = Number(row?.total || 0);
-  if (total < 10) return;
-  const pct = (Number(row?.bounces || 0) / total) * 100;
+  const bounces = Number(row?.bounces || 0);
+  return { total, bounces, pct: total > 0 ? (bounces / total) * 100 : 0 };
+}
+
+function maybePauseOnBounceAlarm(config, _stats) {
+  const cap = config.send?.bounce_rate_alarm_pct ?? 3;
+  const { total, pct } = bounceRate();
+
+  // Too little recent volume to judge either way. Leave any existing pause
+  // alone — it expires on its own cooldown via isPaused().
+  if (total < MIN_SENDS_FOR_ALARM) return;
+
   if (pct > cap) {
-    db.prepare(`
-      INSERT OR REPLACE INTO send_counter (date, kind, count)
-      VALUES ('PAUSED', 'alarm', 1)
-    `).run();
-    recordEvent({ entity: 'system', event: 'bounce_alarm_pause', detail: { bounceRatePct: pct, cap } });
-    logger.warn({ bounceRatePct: pct, cap }, 'BOUNCE ALARM: sending paused');
+    pauseSending({ bounceRatePct: pct, cap });
+  } else if (pauseState().paused) {
+    // Window is provably healthy again — lift now rather than making the
+    // applicant wait out the rest of the cooldown.
+    clearPause('bounce_rate_recovered', { bounceRatePct: pct, cap });
   }
 }
 
+export function pauseSending(detail = {}) {
+  getDb().prepare(`
+    INSERT OR REPLACE INTO send_counter (date, kind, count) VALUES ('PAUSED', 'alarm', ?)
+  `).run(nowEpoch());
+  recordEvent({ entity: 'system', event: 'bounce_alarm_pause', detail });
+  logger.warn(detail, 'BOUNCE ALARM: sending paused');
+}
+
+/** Lift the pause. Returns true if a pause was actually cleared. */
+export function clearPause(reason, detail = {}) {
+  const info = getDb().prepare(
+    `DELETE FROM send_counter WHERE date = 'PAUSED' AND kind = 'alarm'`
+  ).run();
+  if (info.changes > 0) {
+    recordEvent({ entity: 'system', event: 'bounce_alarm_cleared', detail: { reason, ...detail } });
+    logger.info({ reason, ...detail }, 'bounce alarm cleared, sending resumed');
+  }
+  return info.changes > 0;
+}
+
+/**
+ * Current pause state, without mutating anything. Exported for /diag.
+ *
+ * The `count` column doubles as the pause timestamp (epoch seconds). Rows
+ * written by the previous build stored a literal 1, which reads as 1970 and
+ * is therefore already expired — exactly the self-heal a queue stranded by
+ * the old never-clearing pause needs.
+ */
+export function pauseState() {
+  const row = getDb().prepare(
+    `SELECT count FROM send_counter WHERE date = 'PAUSED' AND kind = 'alarm'`
+  ).get();
+  if (!row) return { paused: false, sinceEpoch: null, expiresEpoch: null, expired: false };
+  const sinceEpoch = Number(row.count) || 0;
+  const expiresEpoch = sinceEpoch + PAUSE_COOLDOWN_DAYS * 86400;
+  const expired = nowEpoch() >= expiresEpoch;
+  return { paused: !expired, sinceEpoch, expiresEpoch, expired };
+}
+
 export function isPaused() {
-  const row = getDb().prepare(`
-    SELECT 1 FROM send_counter WHERE date = 'PAUSED' AND kind = 'alarm'
-  `).get();
-  return Boolean(row);
+  const st = pauseState();
+  // Self-heal: an expired pause is deleted on read so the row cannot linger
+  // forever the way the pre-cooldown one did.
+  if (st.expired && st.sinceEpoch !== null) {
+    clearPause('cooldown_elapsed', { sinceEpoch: st.sinceEpoch });
+  }
+  return st.paused;
 }

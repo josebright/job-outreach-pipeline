@@ -87,4 +87,36 @@ describe('deriveDomain', () => {
     });
     expect(deriveDomain({ id: c2.id, website: null })).toBe('careers.gamma.io');
   });
+
+  it('skips api.smartrecruiters.com job URLs', () => {
+    // Regression: the SmartRecruiters adapter stores raw.ref as the job URL,
+    // which is an api.smartrecruiters.com address. deriveDomain used to accept
+    // it as the employer domain, and the pattern probe then built
+    // founders@api.smartrecruiters.com — a guaranteed bounce that reached the
+    // approved queue for two separate companies.
+    const c = upsertCompany({ name: 'Cint', ats: 'smartrecruiters', slug: 'cint', source: 'seed' });
+    upsertJob({
+      companyId: c.id, externalJobId: 'c1', title: 'Software Engineer II',
+      url: 'https://api.smartrecruiters.com/v1/companies/cint/postings/abc-123',
+    });
+    expect(deriveDomain({ id: c.id, website: null })).toBeNull();
+  });
+
+  it('skips every ATS platform we ingest from', () => {
+    const urls = {
+      gh:  'https://job-boards.greenhouse.io/acme/jobs/1',
+      lev: 'https://api.lever.co/v0/postings/acme/1',
+      ash: 'https://api.ashbyhq.com/posting-api/job-board/acme',
+      wk:  'https://apply.workable.com/acme/j/ABC/',
+      sr:  'https://api.smartrecruiters.com/v1/companies/acme/postings/1',
+    };
+    let n = 0;
+    for (const [key, url] of Object.entries(urls)) {
+      const co = upsertCompany({ name: `Co${key}`, ats: 'greenhouse', slug: `co-${key}`, source: 'seed' });
+      upsertJob({ companyId: co.id, externalJobId: `${key}-1`, title: 'Eng', url });
+      expect(deriveDomain({ id: co.id, website: null }), `${key} should be skipped`).toBeNull();
+      n++;
+    }
+    expect(n).toBe(5);
+  });
 });

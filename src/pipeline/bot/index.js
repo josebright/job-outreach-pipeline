@@ -10,7 +10,7 @@ import {
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
   handleDiag, handleSetSize,
-  handleSuppress, handleUnblock, handleSuppressed,
+  handleSuppress, handleUnblock, handleSuppressed, handleUnpause,
 } from './handlers.js';
 
 let running = null;
@@ -107,6 +107,7 @@ export function startBot() {
   });
   bot.command('unblock', (ctx) => ctx.replyWithHTML(handleUnblock(argOf(ctx))));
   bot.command('suppressed', (ctx) => ctx.replyWithHTML(handleSuppressed()));
+  bot.command('unpause', (ctx) => ctx.replyWithHTML(handleUnpause()));
 
   bot.command('addcompany', async (ctx) => {
     const text = ctx.message?.text || '';

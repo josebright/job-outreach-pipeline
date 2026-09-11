@@ -85,3 +85,45 @@ describe('send guards', () => {
     expect(result.messageId).toBeDefined();
   });
 });
+
+/* ── ATS / job-board recipient guard ────────────────────────── */
+
+describe('ATS-domain recipient guard', () => {
+  beforeEach(() => freshDb());
+
+  async function trySendTo(email, { override = false } = {}) {
+    const c = upsertCompany({ name: 'Cint', ats: 'smartrecruiters', slug: 'cint', source: 'seed' });
+    const contact = upsertContact({
+      companyId: c.id, fullName: 'F', title: 'Founder', roleType: 'founder',
+      email, emailStatus: 'risky', source: 'hunter',
+    });
+    const draft = createDraft({
+      contactId: contact.id, subject: 's', body: 'b',
+      promptVersion: 'outreach_v1', hookVerified: true,
+    });
+    updateDraftStatus(draft.id, 'approved');
+    return sendApprovedDraft({
+      draft: { id: draft.id, status: 'approved', subject: 's', body: 'b', deliverability_override: override },
+      recipientEmail: email, kind: 'initial', caps, transport: fakeTransport,
+    });
+  }
+
+  it('refuses to send to a pattern-probe address on an ATS host', async () => {
+    // The live queue had two approved drafts aimed here (Cint + ServiceNow).
+    await expect(trySendTo('founders@api.smartrecruiters.com'))
+      .rejects.toMatchObject({ name: 'SendBlockedError', reason: 'recipient_ats_domain' });
+  });
+
+  it('is NOT bypassable by the /approve deliverability override', async () => {
+    // /approve sets deliverability_override, which waives the verified-email
+    // gate. It must not also waive this one — the address cannot receive mail
+    // no matter how much the applicant consents.
+    await expect(trySendTo('founders@api.smartrecruiters.com', { override: true }))
+      .rejects.toMatchObject({ name: 'SendBlockedError', reason: 'recipient_ats_domain' });
+  });
+
+  it('still sends to a real employer domain', async () => {
+    const r = await trySendTo('contact@clera.io');
+    expect(r.messageId).toBeTruthy();
+  });
+});

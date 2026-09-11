@@ -13,6 +13,7 @@ import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
 import { sendMessage } from '../send/gmail.js';
 import { runSend } from '../send/index.js';
+import { pauseState, clearPause, bounceRate } from '../send/reply-detect.js';
 import { runReport } from '../report/index.js';
 import { usage } from '../enrich/cost-guard.js';
 import { runDiscover } from '../discover/index.js';
@@ -226,12 +227,50 @@ export async function handleSend() {
       `initial: ${stats.initialSent}`,
       `followup1: ${stats.followup1Sent}`,
       `followup2: ${stats.followup2Sent}`,
-      `blocked (approval/suppressed/cap/unverified): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}/${stats.blockedUnverified}`,
-      stats.paused ? '<b>PAUSED</b> by bounce alarm.' : '',
+      `blocked (approval/suppressed/cap/unverified/ats-domain): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}/${stats.blockedUnverified}/${stats.blockedAtsDomain}`,
+      stats.paused ? pausedExplanation() : '',
+      stats.blockedAtsDomain > 0
+        ? `<i>${stats.blockedAtsDomain} draft(s) blocked: recipient address is on an ATS/job-board domain (e.g. founders@api.smartrecruiters.com) and would bounce. Reject those drafts and re-run /run to get a real contact.</i>`
+        : '',
     ].filter(Boolean).join('\n');
   } catch (err) {
     return `Send failed: ${escapeHtml(err.message)}`;
   }
+}
+
+/* ── bounce-alarm pause ───────────────────────────────────── */
+
+function fmtEpoch(e) {
+  if (!e) return 'unknown';
+  return new Date(e * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
+
+function pausedExplanation() {
+  const st = pauseState();
+  const br = bounceRate();
+  return [
+    '<b>PAUSED</b> by bounce alarm — nothing was sent.',
+    `  bounce rate (7d): ${br.bounces}/${br.total} = ${br.pct.toFixed(1)}%`,
+    `  paused since: ${fmtEpoch(st.sinceEpoch)}`,
+    `  auto-lifts:   ${fmtEpoch(st.expiresEpoch)}`,
+    '  Use /unpause to lift it now.',
+  ].join('\n');
+}
+
+/**
+ * Manually lift the bounce-alarm pause. The alarm re-arms on the next poll
+ * if the 7-day window is still unhealthy, so this is a nudge, not an
+ * override — it cannot force a send through a genuinely bad bounce rate.
+ */
+export function handleUnpause() {
+  const st = pauseState();
+  if (!st.paused && !st.expired) return 'Sending is not paused.';
+  const br = bounceRate();
+  clearPause('manual_unpause', { bounceRatePct: br.pct });
+  const warn = br.total >= 10 && br.pct > 3
+    ? `\n<i>Heads up: the 7-day bounce rate is still ${br.pct.toFixed(1)}% (${br.bounces}/${br.total}). The alarm will re-arm on the next poll unless those bounces age out.</i>`
+    : '';
+  return `Bounce alarm cleared. Sending resumed — use /send to fire the queue.${warn}`;
 }
 
 /**
@@ -421,6 +460,21 @@ export async function handleDiag() {
       return `  ${String(r.variant).padEnd(16)} ${r.drafts_created} / ${r.sent} / ${r.replied} / ${rate}${flag}`;
     }),
     '',
+    '<b>Send status</b>',
+    ...(function () {
+      const st = pauseState();
+      const br = bounceRate();
+      const rate = br.total > 0 ? `${br.bounces}/${br.total} = ${br.pct.toFixed(1)}%` : 'no sends in window';
+      const out = [`  bounce rate (7d): ${rate}`];
+      if (st.paused) {
+        out.push(`  <b>PAUSED</b> since ${fmtEpoch(st.sinceEpoch)} — auto-lifts ${fmtEpoch(st.expiresEpoch)}`);
+        out.push('  Use /unpause to lift it now.');
+      } else {
+        out.push('  sending active (not paused)');
+      }
+      return out;
+    })(),
+    '',
     '<b>Budgets this month</b>',
     `  hunter:    ${hunterBudget.units}/${hunterBudget.budget} used (${hunterBudget.remaining} left)`,
     `  anthropic: ${anthroBudget.units}/${anthroBudget.budget} used (${anthroBudget.remaining} left)`,
@@ -465,6 +519,7 @@ export function handleHelp() {
     '/suppress &lt;slug&gt; [reason] — permanently blocklist a company',
     '/unblock &lt;slug&gt; — remove a company from the blocklist',
     '/suppressed — list all suppressed companies',
+    '/unpause — lift the bounce-alarm send pause',
     '/status — pipeline funnel snapshot',
     '/diag — deep pipeline diagnostic (pool composition, budgets)',
     '/whoami — show your Telegram chat id (for env config)',
