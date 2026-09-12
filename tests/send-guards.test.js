@@ -126,4 +126,34 @@ describe('ATS-domain recipient guard', () => {
     const r = await trySendTo('contact@clera.io');
     expect(r.messageId).toBeTruthy();
   });
+
+  it('quarantines the contact and draft so it stops re-blocking every pass', async () => {
+    // Without this, an unsendable draft sits in the approved queue and
+    // re-blocks on every single send pass, forever.
+    const { runSend } = await import('../src/pipeline/send/index.js');
+    const { contactById, draftById } = await import('../src/pipeline/db/repo.js');
+
+    const c = upsertCompany({ name: 'Cint', ats: 'smartrecruiters', slug: 'cint', source: 'seed' });
+    const contact = upsertContact({
+      companyId: c.id, fullName: 'F', title: 'Founder', roleType: 'founder',
+      email: 'founders@api.smartrecruiters.com', emailStatus: 'risky', source: 'hunter',
+    });
+    const draft = createDraft({
+      contactId: contact.id, subject: 's', body: 'b',
+      promptVersion: 'outreach_v1', hookVerified: true,
+    });
+    updateDraftStatus(draft.id, 'approved');
+
+    const config = {
+      send: { sender_email: 'me@x.org', sender_name: 'Me', reply_to: null,
+              daily_cap_initial: 15, daily_cap_followup: 15, research_daily_cap: 0 },
+      enrichment: {},
+    };
+    const stats = await runSend({ config });
+
+    expect(stats.blockedAtsDomain).toBe(1);
+    expect(stats.atsDraftsQuarantined).toBe(1);
+    expect(contactById(contact.id).email_status).toBe('invalid');
+    expect(draftById(draft.id).status).toBe('rejected');
+  });
 });

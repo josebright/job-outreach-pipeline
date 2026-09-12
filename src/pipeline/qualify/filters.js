@@ -21,7 +21,7 @@ const compact = s => norm(s).replace(/\s+/g, ' ');
 
 // Role markers that *must* appear in the title. Substring match on
 // normalized (lowercased) title. Compare gate3 for details.
-const ROLE_MARKERS = [
+export const ROLE_MARKERS = [
   'software engineer', 'swe',
   'backend engineer', 'back-end engineer', 'back end engineer',
   'frontend engineer', 'front-end engineer', 'front end engineer',
@@ -47,7 +47,7 @@ const ROLE_MARKERS = [
 // "Manager, Software Engineering". These aren't a whack-a-mole growth
 // list — every entry maps to one of the same underlying rejected
 // categories (management, ML/AI, security, infra, adjacent-specialty).
-const REJECT_ROLE_MARKERS = [
+export const REJECT_ROLE_MARKERS = [
   // Architecture / SRE / DevOps
   'architect', 'sre', 'site reliability',
   'devops', 'devsecops',

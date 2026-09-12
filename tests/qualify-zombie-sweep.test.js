@@ -12,9 +12,9 @@ import { fileURLToPath } from 'url';
 import { _resetForTests } from '../src/pipeline/db/connection.js';
 import { runMigrations } from '../src/pipeline/db/migrate.js';
 import {
-  upsertCompany, setCompanyStatus, upsertJob, setJobQualifyResult, companyById,
+  upsertCompany, setCompanyStatus, upsertJob, setJobQualifyResult, companyById, setState,
 } from '../src/pipeline/db/repo.js';
-import { runQualify } from '../src/pipeline/qualify/index.js';
+import { runQualify, qualifyFingerprint } from '../src/pipeline/qualify/index.js';
 import { parseConfig } from '../src/pipeline/config/schema.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,10 +36,12 @@ describe('qualify: zombie sweep', () => {
   beforeEach(() => freshDb());
 
   it('demotes a "qualified" company whose jobs are all already disqualified and untouched this pass', async () => {
-    // Simulate a company that got promoted before Q6 tightening. Its
-    // one job is already status='disqualified' (won't be re-evaluated
-    // because qualify targets ingested/needs_review/qualified only —
-    // NOT disqualified). So touchedCompanies stays empty for this co.
+    // Simulate a company that got promoted before Q6 tightening. Its one job
+    // is already status='disqualified'. On a steady-state run (qualification
+    // config unchanged since the last pass) disqualified rows are not
+    // re-evaluated, so touchedCompanies stays empty for this company and only
+    // the zombie sweep can demote it. Seed the fingerprint below so this pass
+    // is a steady-state one rather than a config-change sweep.
     const zombie = upsertCompany({
       name: 'Affirm', ats: 'greenhouse', slug: 'affirm',
       source: 'seed', hqCountry: 'US', sizeBand: '1000+',
@@ -59,13 +61,43 @@ describe('qualify: zombie sweep', () => {
     });
 
     const config = realConfig();
+    setState('qualify_config_fingerprint', qualifyFingerprint(config));   // steady state
     const stats = await runQualify({ config });
 
-    // The disqualified job is NOT re-evaluated (not in targets), yet
-    // the sweep should still demote the company.
+    // The disqualified job is NOT re-evaluated, yet the sweep still demotes.
+    expect(stats.configChanged).toBe(false);
     expect(stats.zombiesDemoted).toBe(1);
     const after = companyById(zombie.id);
     expect(after.status).toBe('ingested');
+  });
+
+  it('still demotes the zombie when a config change DOES re-evaluate its jobs', async () => {
+    // Same company, but this pass is a config-change sweep, so the dead job is
+    // re-evaluated, fails gate 4 again, and the company is demoted through the
+    // touched-companies path instead of the zombie path. Different route, same
+    // end state — that is what actually matters.
+    const zombie = upsertCompany({
+      name: 'Affirm', ats: 'greenhouse', slug: 'affirm',
+      source: 'seed', hqCountry: 'US', sizeBand: '1000+',
+    });
+    setCompanyStatus(zombie.id, 'qualified');
+    const job = upsertJob({
+      companyId: zombie.id, externalJobId: 'AF1',
+      title: 'Senior Backend Engineer',
+      locationRaw: 'Remote', remoteScope: 'worldwide',
+      compRaw: '$150,000 USD',
+      descriptionText: 'Node.js. Salary $150k.',
+      postedAt: new Date().toISOString(),
+    });
+    setJobQualifyResult(job.id, {
+      status: 'disqualified', score: 0, disqualifyReason: 'company_size_too_large:1000+',
+    });
+
+    const config = realConfig();
+    const stats = await runQualify({ config });   // no stored fingerprint => sweep
+    expect(stats.configChanged).toBe(true);
+    expect(stats.rescued).toBe(0);
+    expect(companyById(zombie.id).status).toBe('ingested');
   });
 
   it('does NOT demote a healthy qualified company whose jobs are still qualified', async () => {

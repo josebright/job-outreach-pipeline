@@ -11,28 +11,49 @@
 //   6. gate6_recentPosting        — within max_posting_age_days
 // (Gate 7 "have contact email" is enforced at draft time, not qualify.)
 //
-// Re-runs against 'ingested', 'needs_review', AND 'qualified' jobs so
-// that filter changes take retroactive effect. 'disqualified' and
-// 'closed' jobs are not re-evaluated.
+// Re-runs against 'ingested', 'needs_review', AND 'qualified' jobs so that
+// filter changes take retroactive effect. 'disqualified' is ALSO re-evaluated,
+// but only on the first pass after the qualification config changes — see
+// qualifyFingerprint below. 'closed' jobs are never re-evaluated (the posting
+// is gone from the ATS; that is a fact about the world, not about our config).
+import crypto from 'crypto';
 import {
   jobsByStatus, companiesByStatus, companyById, wasCompanyContactedRecently,
   setJobQualifyResult, refreshCompanyScore, setCompanyStatus,
-  isCompanySuppressed,
+  isCompanySuppressed, getState, setState,
 } from '../db/repo.js';
 import {
   gate1_remoteFromNigeria, gate2_payMinimum, gate3_skillsetMatch,
   gate4_companySize, gate5_notPreviouslyContacted, gate6_recentPosting,
+  ROLE_MARKERS, REJECT_ROLE_MARKERS,
 } from './filters.js';
 import { scoreJob } from './score.js';
 import { logger } from '../util/logger.js';
 
 export async function runQualify({ config } = {}) {
+  // A 'disqualified' job is normally terminal — re-scoring ~20k dead rows on
+  // every run is pure waste, since most were killed for reasons no config
+  // change can undo (the title is not an engineering title). But when the
+  // qualification config DOES change, those rows are exactly the ones that
+  // need another look: lowering scoring.threshold or widening stack.keywords
+  // is meant to rescue jobs the old settings killed. Fingerprint the config
+  // and sweep them back in once, on the first pass after any change.
+  const fingerprint = qualifyFingerprint(config);
+  const configChanged = getState(FINGERPRINT_KEY) !== fingerprint;
+
   const targets = [
     ...jobsByStatus('ingested'),
     ...jobsByStatus('needs_review'),
     ...jobsByStatus('qualified'),
+    ...(configChanged ? jobsByStatus('disqualified') : []),
   ];
-  const stats = { evaluated: 0, qualified: 0, disqualified: 0, needsReview: 0 };
+  const stats = {
+    evaluated: 0, qualified: 0, disqualified: 0, needsReview: 0,
+    configChanged, rescued: 0,
+  };
+  if (configChanged) {
+    logger.info({ fingerprint }, 'qualify config changed — re-evaluating disqualified jobs');
+  }
   const touchedCompanies = new Set();
 
   for (const job of targets) {
@@ -66,9 +87,13 @@ export async function runQualify({ config } = {}) {
       disqualifyReason: decision.reason,
     });
 
-    if (decision.status === 'qualified')      stats.qualified++;
-    else if (decision.status === 'needs_review') stats.needsReview++;
-    else                                          stats.disqualified++;
+    if (decision.status === 'qualified') {
+      stats.qualified++;
+      // A job that was already dead and is now alive again — the whole point
+      // of the config-change sweep.
+      if (job.status === 'disqualified') stats.rescued++;
+    } else if (decision.status === 'needs_review') stats.needsReview++;
+    else stats.disqualified++;
 
     touchedCompanies.add(company.id);
   }
@@ -101,8 +126,45 @@ export async function runQualify({ config } = {}) {
     }
   }
 
+  // Only recorded after a full pass, so a crash mid-sweep leaves the old
+  // fingerprint in place and the sweep is retried next run.
+  if (configChanged) setState(FINGERPRINT_KEY, fingerprint);
+
   logger.info(stats, 'qualify pass complete');
   return stats;
+}
+
+const FINGERPRINT_KEY = 'qualify_config_fingerprint';
+
+/**
+ * Stable hash of everything that can change a gate decision: the config
+ * sections the gates read, plus the two role lists that live in code. Any
+ * edit to a threshold, keyword, deny entry or role marker changes this, which
+ * triggers one re-evaluation sweep over previously-disqualified jobs.
+ *
+ * Exported for tests.
+ */
+export function qualifyFingerprint(config) {
+  const material = {
+    gates: config?.gates ?? null,
+    stack: config?.stack ?? null,
+    location: config?.location ?? null,
+    currency: config?.currency ?? null,
+    scoring: config?.scoring ?? null,
+    roleMarkers: ROLE_MARKERS,
+    rejectRoleMarkers: REJECT_ROLE_MARKERS,
+  };
+  return crypto.createHash('sha256').update(stableStringify(material)).digest('hex').slice(0, 16);
+}
+
+// JSON.stringify with object keys sorted, so a YAML reordering that changes
+// nothing semantically does not trigger a pointless full re-sweep.
+function stableStringify(v) {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stableStringify(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
 }
 
 /**

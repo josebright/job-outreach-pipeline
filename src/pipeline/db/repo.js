@@ -346,6 +346,28 @@ export function contactCountForCompany(companyId) {
   ).get(companyId).n;
 }
 
+/* ── pipeline_state: small k/v for cross-run bookkeeping ──── */
+
+export function getState(key) {
+  const row = getDb().prepare('SELECT value FROM pipeline_state WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+export function setState(key, value) {
+  getDb().prepare(`
+    INSERT INTO pipeline_state (key, value, updated_at)
+    VALUES (?, ?, datetime('now'))
+    ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, String(value));
+}
+
+export function setContactEmailStatus(id, status) {
+  // NB: the contact table has no updated_at column (see 001_initial_schema).
+  getDb().prepare(
+    `UPDATE contact SET email_status = ? WHERE id = ?`
+  ).run(status, id);
+}
+
 export function contactById(id) {
   return getDb().prepare('SELECT * FROM contact WHERE id = ?').get(id);
 }

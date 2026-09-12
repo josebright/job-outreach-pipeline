@@ -11,6 +11,7 @@
 import {
   getSendCount, incrementSendCount, isSuppressed,
   draftsByStatus, draftById, contactById, updateDraftStatus,
+  setContactEmailStatus,
 } from '../db/repo.js';
 import { recordEvent } from '../db/event-log.js';
 import { getDb } from '../db/connection.js';
@@ -190,6 +191,9 @@ export async function runSend({ config } = {}) {
       stats.initialSent++;
     } catch (err) {
       catchBlocked(err, stats);
+      if (err.name === 'SendBlockedError' && err.reason === 'recipient_ats_domain') {
+        quarantineAtsContact(draft, contact, stats);
+      }
     }
     if (getSendCount('initial') >= caps.initial) break;
   }
@@ -221,6 +225,13 @@ export async function runSend({ config } = {}) {
       await sendApprovedDraft({
         draft: { ...draft, body: followupBody({ profile, kind: 'followup_1' }) },
         recipientEmail: contact.email, kind: 'followup_1', caps, transport,
+        // Both follow-up kinds share ONE daily budget. Without this they
+        // each got their own counter, so daily_cap_followup: 15 silently
+        // allowed 15 follow-up-1s PLUS 15 follow-up-2s, and the
+        // getSendCount('followup') loop-break below read a counter nothing
+        // ever wrote. message.kind stays 'followup_1' — only the cap
+        // bucket is shared.
+        counterKind: 'followup',
         fromEmail: from, fromName, replyTo,
         threadId: init?.thread_id || null,
         inReplyTo: init?.message_id ? `<${init.message_id}>` : null,
@@ -243,6 +254,13 @@ export async function runSend({ config } = {}) {
       await sendApprovedDraft({
         draft: { ...draft, body: followupBody({ profile, kind: 'followup_2' }) },
         recipientEmail: contact.email, kind: 'followup_2', caps, transport,
+        // Both follow-up kinds share ONE daily budget. Without this they
+        // each got their own counter, so daily_cap_followup: 15 silently
+        // allowed 15 follow-up-1s PLUS 15 follow-up-2s, and the
+        // getSendCount('followup') loop-break below read a counter nothing
+        // ever wrote. message.kind stays 'followup_2' — only the cap
+        // bucket is shared.
+        counterKind: 'followup',
         fromEmail: from, fromName, replyTo,
         threadId: init?.thread_id || null,
         inReplyTo: init?.message_id ? `<${init.message_id}>` : null,
@@ -258,6 +276,24 @@ export async function runSend({ config } = {}) {
 
   logger.info(stats, 'send pass complete');
   return stats;
+}
+
+/**
+ * An address on an ATS / job-board host can never receive mail, so a draft
+ * aimed at one is not "blocked today" — it is permanently unsendable. Left
+ * alone it sits in the approved queue re-blocking on every single send pass.
+ * Mark the contact invalid (which is simply true) and reject the draft, so
+ * it drops out of /list and the next enrich pass goes looking for a real
+ * address for that company instead.
+ */
+function quarantineAtsContact(draft, contact, stats) {
+  setContactEmailStatus(contact.id, 'invalid');
+  updateDraftStatus(draft.id, 'rejected', {
+    reason: `auto: recipient ${contact.email} is on an ATS/job-board domain and cannot receive mail`,
+  });
+  stats.atsDraftsQuarantined = (stats.atsDraftsQuarantined || 0) + 1;
+  logger.warn({ draftId: draft.id, contactId: contact.id, email: contact.email },
+    'quarantined draft aimed at an ATS/job-board address');
 }
 
 function catchBlocked(err, stats) {
