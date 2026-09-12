@@ -52,72 +52,70 @@ export function startBot() {
     `Your Telegram chat id: <code>${ctx.chat?.id}</code>`
   ));
 
-  bot.command('help', (ctx) => ctx.replyWithHTML(handleHelp()));
+  bot.command('help', guard('help', () => handleHelp()));
 
-  bot.command('list',   (ctx) => ctx.replyWithHTML(handleList()));
-  bot.command('show',   (ctx) => ctx.replyWithHTML(handleShow(argOf(ctx))));
-  bot.command('approve', (ctx) => ctx.replyWithHTML(handleApprove(argOf(ctx))));
-  bot.command('reject',  (ctx) => {
+  bot.command('list',    guard('list',    () => handleList()));
+  bot.command('show',    guard('show',    (ctx) => handleShow(argOf(ctx))));
+  bot.command('approve', guard('approve', (ctx) => handleApprove(argOf(ctx))));
+  bot.command('reject',  guard('reject',  (ctx) => {
     const [id, ...rest] = argsOf(ctx);
-    ctx.replyWithHTML(handleReject(id, rest.join(' ')));
-  });
-  bot.command('rejectall', (ctx) => {
-    const reason = argsOf(ctx).join(' ');
-    ctx.replyWithHTML(handleRejectAll(reason));
-  });
-  bot.command('replied', (ctx) => ctx.replyWithHTML(handleMarkReplied(argOf(ctx))));
-  bot.command('status', async (ctx) => ctx.replyWithHTML(await handleStatus()));
-  bot.command('diag',   async (ctx) => ctx.replyWithHTML(await handleDiag()));
+    return handleReject(id, rest.join(' '));
+  }));
+  bot.command('rejectall', guard('rejectall', (ctx) => handleRejectAll(argsOf(ctx).join(' '))));
+  bot.command('replied', guard('replied', (ctx) => handleMarkReplied(argOf(ctx))));
+  bot.command('status',  guard('status',  () => handleStatus()));
+  bot.command('diag',    guard('diag',    () => handleDiag()));
 
-  // Async commands (preview + send) can take a few seconds.
-  bot.command('preview', async (ctx) => {
+  // Async commands (preview + send + run) can take a few seconds, so they
+  // acknowledge first and return the real reply when they finish.
+  bot.command('preview', guard('preview', async (ctx) => {
     await ctx.reply('Sending preview…');
-    ctx.replyWithHTML(await handlePreview(argOf(ctx)));
-  });
-  bot.command('send', async (ctx) => {
+    return handlePreview(argOf(ctx));
+  }));
+  bot.command('send', guard('send', async (ctx) => {
     await ctx.reply('Firing send loop…');
-    ctx.replyWithHTML(await handleSend());
-  });
-
-  bot.command('run', async (ctx) => {
+    return handleSend();
+  }));
+  bot.command('run', guard('run', async (ctx) => {
     await ctx.reply('Firing full pipeline… this may take a few minutes.');
-    ctx.replyWithHTML(await handleRun());
-  });
-
-  bot.command('replace', async (ctx) => {
+    return handleRun();
+  }));
+  bot.command('replace', guard('replace', async (ctx) => {
     const [id, ...rest] = argsOf(ctx);
     await ctx.reply(`Regenerating draft #${id}…`);
-    ctx.replyWithHTML(await handleReplace(id, rest.join(' ')));
-  });
-
-  bot.command('draft', async (ctx) => {
+    return handleReplace(id, rest.join(' '));
+  }));
+  bot.command('draft', guard('draft', async (ctx) => {
     const slug = argOf(ctx);
     await ctx.reply(`Drafting for ${slug || '(no slug)'} …`);
-    ctx.replyWithHTML(await handleDraftForSlug(slug));
-  });
+    return handleDraftForSlug(slug);
+  }));
 
-  bot.command('setsize', (ctx) => {
+  bot.command('setsize', guard('setsize', (ctx) => {
     const [slug, band] = argsOf(ctx);
-    ctx.replyWithHTML(handleSetSize(slug, band));
-  });
-
-  bot.command('suppress', (ctx) => {
+    return handleSetSize(slug, band);
+  }));
+  bot.command('suppress', guard('suppress', (ctx) => {
     const [slug, ...rest] = argsOf(ctx);
-    ctx.replyWithHTML(handleSuppress(slug, rest.join(' ')));
-  });
-  bot.command('unblock', (ctx) => ctx.replyWithHTML(handleUnblock(argOf(ctx))));
-  bot.command('suppressed', (ctx) => ctx.replyWithHTML(handleSuppressed()));
-  bot.command('unpause', (ctx) => ctx.replyWithHTML(handleUnpause()));
+    return handleSuppress(slug, rest.join(' '));
+  }));
+  bot.command('unblock',    guard('unblock',    (ctx) => handleUnblock(argOf(ctx))));
+  bot.command('suppressed', guard('suppressed', () => handleSuppressed()));
+  bot.command('unpause',    guard('unpause',    () => handleUnpause()));
 
-  bot.command('addcompany', async (ctx) => {
+  bot.command('addcompany', guard('addcompany', async (ctx) => {
     const text = ctx.message?.text || '';
     const input = text.replace(/^\/addcompany(@\S+)?\s*/i, '').trim();
     await ctx.reply('Looking up…');
-    ctx.replyWithHTML(await handleAddCompany(input));
-  });
+    return handleAddCompany(input);
+  }));
 
+  // Last-resort net. Individual commands are wrapped in guard(), so anything
+  // reaching here is a middleware-level failure - still report it rather than
+  // leaving the user staring at silence.
   bot.catch((err, ctx) => {
-    logger.error({ err: err.message, updateType: ctx.updateType }, 'telegraf handler error');
+    logger.error({ err: err.message, stack: err.stack, updateType: ctx.updateType }, 'telegraf handler error');
+    ctx.reply(`Something broke handling that: ${err.message}`).catch(() => {});
   });
 
   bot.launch({ dropPendingUpdates: true }).catch(err => {
@@ -127,6 +125,77 @@ export function startBot() {
   logger.info({ allowedChats: allowed.length }, 'telegram bot launched');
   running = bot;
   return bot;
+}
+
+// Telegram rejects any message over 4096 characters. /list grows ~140 chars
+// per queued draft, so it silently died somewhere past ~28 pending drafts -
+// the API call failed, bot.catch logged it, and the user saw nothing at all.
+const TELEGRAM_LIMIT = 4096;
+const CHUNK_TARGET = 3500;          // headroom for HTML entities
+
+/**
+ * Split on line boundaries so a chunk never lands mid-tag (which would make
+ * the HTML unparseable and fail the send for a second reason).
+ * Exported for tests.
+ */
+export function chunkMessage(text, limit = CHUNK_TARGET) {
+  const s = String(text || '');
+  if (s.length <= limit) return [s];
+  const out = [];
+  let buf = '';
+  for (const line of s.split('\n')) {
+    // A single line longer than the limit has to be hard-split.
+    if (line.length > limit) {
+      if (buf) { out.push(buf); buf = ''; }
+      for (let i = 0; i < line.length; i += limit) out.push(line.slice(i, i + limit));
+      continue;
+    }
+    if (buf.length + line.length + 1 > limit) { out.push(buf); buf = line; }
+    else { buf = buf ? `${buf}\n${line}` : line; }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+
+const stripTags = (s) => String(s || '')
+  .replace(/<[^>]+>/g, '')
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+/**
+ * Deliver a reply no matter what. Chunks to stay under the size limit, and if
+ * Telegram refuses to parse the HTML, resends that chunk as plain text rather
+ * than dropping it. Silence is the one outcome that is never acceptable - the
+ * user cannot debug what they cannot see.
+ */
+async function safeReply(ctx, text) {
+  const body = (text === undefined || text === null || text === '')
+    ? '(command returned nothing)'
+    : String(text);
+  for (const part of chunkMessage(body)) {
+    try {
+      await ctx.replyWithHTML(part, { disable_web_page_preview: true });
+    } catch (err) {
+      logger.warn({ err: err.message, len: part.length }, 'HTML reply rejected, retrying as plain text');
+      await ctx.reply(stripTags(part), { disable_web_page_preview: true });
+    }
+  }
+}
+
+/**
+ * Wrap a command so a thrown error reaches the USER, not just the log. The
+ * previous bot.catch logged and returned, so every failure looked identical
+ * from Telegram: no response at all.
+ */
+function guard(name, fn) {
+  return async (ctx) => {
+    try {
+      const out = await fn(ctx);
+      if (out !== undefined) await safeReply(ctx, out);
+    } catch (err) {
+      logger.error({ err: err.message, stack: err.stack, command: name }, 'command failed');
+      await ctx.reply(`/${name} failed: ${err.message}`).catch(() => {});
+    }
+  };
 }
 
 function argOf(ctx) {
