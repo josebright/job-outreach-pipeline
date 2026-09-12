@@ -54,7 +54,7 @@ stack:
 achievements:
   - "Cut real-time messaging latency by 3x on SciVenia by tuning Redis caching and moving hot paths off Postgres."
   - "Shipped GitLab CI/CD pipelines for SciVenia and Mubazar that lifted release cadence 40% and held 99.9% uptime across multi-region EC2."
-  - "Raised the cloud security posture of a client environment 60% by hardening IAM roles, S3 encryption, API Gateway policies, and CI/CD secret handling."
+  - "Hardened a client AWS environment end-to-end: IAM role design, S3 bucket encryption, API Gateway access control, and vulnerability scanning pipelines via GitLab CI/CD."
   - "As sole engineer, rebuilt GT Merch as a multi-store WordPress operation across Nigeria and Russia, cutting hosting cost and adding cross-border payments and delivery."
   - "Built CoinForBarter Scan-to-Pay, POS, and a merchant-facing PHP SDK end-to-end, delivering a complete multi-surface crypto payment stack that reached YC-warm interest."
   - "Progressed Intern to Tech Lead at FirstFounders inside 12 months, owning deployments across 8+ production sites with incident-free launches."
@@ -64,6 +64,23 @@ achievements:
   - "Built Zurva, a two-product commerce OS for African SMEs (Vault: offline-first mobile POS/inventory, and Pulse: WhatsApp chat-commerce bot) on TypeScript, NestJS, Next.js, Expo, Prisma, Postgres, Redis, and BullMQ, with Paystack and Stripe Connect payouts."
   - "Shipped NineToVibes, an AI content pipeline that turns trending topics into brand-consistent YouTube shorts end-to-end (Ollama Llama 3.1 for scripts, ElevenLabs for voice, Google Veo for visuals, FFmpeg for assembly, YouTube Data API for publishing)."
   - "Delivered Go Elite, a two-sided on-demand marketplace for bodyguard booking with real-time tracking (Socket.IO), Stripe payments, and an admin dashboard, across NestJS, Next.js, and Flutter."
+
+# Communication and Leadership evidence. SEPARATE from `achievements` on
+# purpose: the Etsy engineering ladder levels seniority on five areas -
+# Delivery, Domain Expertise, Problem Solving, Communication, Leadership - and
+# the common failure is proving only the first three. `achievements` above
+# covers those. Every draft must also cite ONE entry from this list, which is
+# what actually reads as senior rather than merely productive.
+# All entries below are drawn from resume.pdf. Keep them concrete.
+leadership_evidence:
+  - "Mentored 50+ developers and led a core team of 10 at CapacityDey Tech Club, taking early-career engineers to client-ready in 6-month cycles on SDLC, UX and security practice."
+  - "Introduced testing, code review and linting practice at TechVenia and brought the interns onto it, raising code quality across SciVenia and Mubazar."
+  - "Trained the GT Merch team to run their own WordPress storefronts, which removed their dependence on outside contractors."
+  - "Ran internal DevSecOps workshops at CapacityDey on secret management and infrastructure hardening for engineers who had not shipped to production before."
+  - "Went from intern to tech lead at FirstFounders inside 12 months, then led PockerLawyer, Uncircle and the FirstChoice re-platform, and put pairing, testing and code review in place across the team."
+  - "Led requirements for a language-learning product at Innopolis University: vision and scope, personas, user stories and the SRS, with acceptance criteria agreed with stakeholders before any code was written."
+  - "Held 5-star customer ratings at Tek Experts while unblocking enterprise Azure deployments, explaining pipeline, RBAC and container failures to customers who were not engineers."
+  - "Proposed GT Augment internally and then oversaw it end-to-end for roughly 12 months, from business case through dashboard and mobile scanner delivery."
 
 # One-liner used when the LLM needs a compact intro.
 one_liner: >

@@ -22,9 +22,9 @@ of the req, diagnoses what the team is really solving for, and offers a
 deliverable. A candidate does not audit why a role exists. A candidate says
 they want the role and shows they can do it.
 
-The corrected version of that same email - note that it states plainly that
-the sender wants the job, then answers "why this applicant" with TWO named,
-numbered pieces of work rather than one:
+The corrected version of that same email. It says plainly that the sender wants
+the job, proves the technical match with named and numbered work, and then -
+the part almost no applicant does - proves Leadership:
 
     Subject: Senior Backend Engineer - Uchenna Bright Ugwumadu
 
@@ -34,13 +34,13 @@ numbered pieces of work rather than one:
     for autonomous dependency updates and proactive CVE remediation, which is
     close to what I have already shipped: GitLab CI/CD pipelines for SciVenia
     and Mubazar that lifted release cadence 40% and held 99.9% uptime across
-    multi-region EC2, plus CVE surface reduction through IAM hardening, S3
-    encryption and CI/CD secret handling.
+    multi-region EC2, with IAM hardening and secrets management on the runners.
 
-    Alongside that pipeline work I went from intern to tech lead at
-    FirstFounders inside 12 months, owning deployments across 8+ production
-    sites with incident-free launches. Day to day I am in GitHub Actions,
-    Docker, Python and Bash, which lines up with your stack.
+    The part that lasts is whether the standard holds after you move on. At
+    TechVenia I introduced testing, code review and linting and brought the
+    interns onto it, which is what kept code quality up across both products.
+    Day to day I am in GitHub Actions, Docker, Python and Bash, which lines up
+    with your stack.
 
     Should I apply through your careers page, or is it easier if I send my CV
     here?
@@ -49,11 +49,16 @@ numbered pieces of work rather than one:
     https://brightugwumadu.vercel.app
     https://www.linkedin.com/in/josebright
 
-Two different dimensions are doing the work there: a hard technical result
-(release cadence, uptime) and ownership at scale (intern to lead, 8+ sites).
-Three products are named, so every claim is checkable. The security work is
-cited through its concrete actions, not through the unusable "posture 60%"
-percentage that sits on that profile entry.
+Paragraph 1 is EVIDENCE 1: Delivery and Domain Expertise, matched to the
+posting, with three products named and two real numbers. Paragraph 2 is
+EVIDENCE 2: Leadership, drawn from leadership_evidence - and note that it never
+says "I am a strong mentor". It says what was introduced and what happened as a
+result. The reader draws the conclusion themselves, which is the only way that
+conclusion sticks.
+
+Note also that the security work is cited through its concrete actions (IAM
+hardening, secrets management) rather than through a "posture improved 60%"
+percentage, which no reader believes.
 
 Every draft you produce must sit on the candidate side of that line.
 
@@ -71,7 +76,7 @@ INPUTS
 Return exactly this JSON, nothing else:
 {
   "subject": "...",             // <= 60 characters
-  "body": "...",                // 90-140 words, plain text, no markdown
+  "body": "...",                // 90-150 words, plain text, no markdown
   "hook_evidence": "..."        // an exact substring quoted from job_posting
 }
 
@@ -119,35 +124,74 @@ and a number attached to it. "I build scalable backends" is not evidence.
 "I cut real-time messaging latency 3x on SciVenia by moving hot paths off
 Postgres" is evidence - it names the product, the change, and the result.
 
-TWO PIECES OF EVIDENCE, NOT ONE (mandatory)
+TWO PIECES OF EVIDENCE, FROM TWO DIFFERENT LADDER AREAS (mandatory)
 
-owner_profile.achievements holds a dozen concrete, quantified entries. A single
-credential reads as a claim; two specific ones read as a track record. Every
-body must cite TWO DIFFERENT achievements, and they must cover two different
-dimensions so the email widens the case instead of repeating it. For example:
+Engineering ladders level seniority on five areas:
 
-  depth   - a hard technical result (latency, uptime, throughput, cost)
-  breadth - ownership, end-to-end delivery, sole engineer, multi-surface work
-  domain  - direct experience in the company's industry (payments, health, AI)
-  scale   - production sites, users, regions, integrations
+  Delivery          getting projects out of the door
+  Domain Expertise  real depth in the technologies involved
+  Problem Solving   finding solutions, making calls, preventing the problem
+  Communication     with engineers AND with people who are not engineers
+  Leadership        mentoring, setting standards, owning decisions
 
-Pick the two that best match this specific posting. Name the product in at
-least one of them - SciVenia, Zurva, CoinForBarter, Go Elite, NineToVibes and
-so on. Named work is checkable and reads as real; unnamed work reads as filler.
+Almost every applicant proves only the first three. They list what they built
+and how fast it ran. That is the profile of a productive engineer, and at
+senior level it is table stakes - the other two hundred applicants are doing
+exactly the same thing.
 
-Never cite two achievements from the same dimension (two latency numbers, or
-two "I shipped a pipeline" lines). That repeats rather than builds.
+What separates a senior engineer is the last two. Senior engineers lead through
+influence rather than authority: they raise the standard of the code around
+them, they explain hard things to people who do not share their vocabulary,
+they mentor, and they take responsibility for decisions. An email that proves
+only Delivery reads as mid-level no matter how good the numbers are.
+
+So every body cites exactly TWO pieces of evidence:
+
+  EVIDENCE 1 - from owner_profile.achievements.
+    Delivery / Domain Expertise / Problem Solving. Pick the entry that most
+    directly matches what this specific posting asks for. Name the product
+    (SciVenia, Zurva, CoinForBarter, Go Elite, NineToVibes, GT Merch) and keep
+    its number. Named, numbered work is checkable; unnamed work reads as filler.
+
+  EVIDENCE 2 - from owner_profile.leadership_evidence.
+    Communication or Leadership. This is the differentiator, so it is not
+    optional and it may not be swapped for a second technical achievement.
+    Pick the entry that fits the company: mentoring and code-standards work for
+    a team that is scaling, stakeholder and non-engineer communication where
+    the role is cross-functional, ownership where they need someone to run
+    with something unsupervised.
+
+Frame EVIDENCE 2 in terms of engineering outcomes, not personality. "Introduced
+testing, code review and linting at TechVenia and brought the interns onto it,
+raising code quality across both products" is Leadership. "I am a great team
+player and communicator" is noise - it claims the trait instead of showing it.
+Never state a soft skill as an adjective about yourself.
+
+
+TONE: CONFIDENT, NOT SUPERIOR
+
+Senior engineers are humble. They know the field is too large to master, they
+ask for help, and they do not believe they are indispensable. So the email
+shows capability without claiming to be the answer to the company's problems.
+It never diagnoses what the team is doing wrong (see CONSULTANT REGISTER), it
+does not oversell, and it does not perform enthusiasm. Calm and specific beats
+eager every time.
+
+The email is itself a work sample for attention to detail - the single most
+visible senior signal in a first contact. Correct spelling of the contact's
+name and the company's name, the exact job title, clean formatting, no filler
+sentence. Get any of those wrong and the content stops mattering.
 
 
 BODY ARC (all variants)
 
-Paragraph 1 - the application and the strongest matched evidence:
+Paragraph 1 - the application and the matched technical evidence:
   Sentence 1: the mandatory application sentence naming job_title.
   Sentence 2: the specific requirement from the posting the sender matches
-    (hook_evidence quotes it), joined to the FIRST achievement with its number
-    and product name.
-Paragraph 2 - the widening evidence and the stack:
-  Sentence 1: the SECOND achievement, from a different dimension.
+    (hook_evidence quotes it), joined to EVIDENCE 1 with its number and
+    product name.
+Paragraph 2 - the seniority evidence and the stack:
+  Sentence 1: EVIDENCE 2, from owner_profile.leadership_evidence.
   Sentence 2: the technologies from job_posting that overlap
     owner_profile.stack, in prose, not a list, and only ones actually named in
     the posting.
@@ -159,8 +203,8 @@ VARIANTS
 
 Rotation matters: recipients pattern-match fast and a fixed template reads as
 bulk mail. The pipeline assigns the variant deterministically per company. All
-three are candidate-voiced and all three carry two pieces of evidence. They
-differ only in ORDER.
+three are candidate-voiced and all three carry EVIDENCE 1 and EVIDENCE 2.
+They differ only in ORDER.
 
 V1_ROLE_FIT - default for 51-500 employee companies and unknown size.
     Lead paragraph 1 with the posting requirement, then the achievement that
@@ -171,7 +215,7 @@ V2_EVIDENCE - default for companies of 50 or fewer (founder reads the inbox).
     Founders respond to shipped work faster than to requirement-matching.
 
 V3_DIRECT - fallback when V1/V2 cannot confidently form.
-    Plainest order: application, matched requirement, achievement, achievement,
+    Plainest order: application, matched requirement, EVIDENCE 1, EVIDENCE 2,
     stack, ask.
 
 
@@ -213,9 +257,9 @@ Write as someone who wants to join the team, not someone who wants to fix it.
 
 BODY (STRICT)
 
-90-140 words. Long enough to carry two real pieces of evidence, short enough
+90-150 words. Long enough to carry two real pieces of evidence, short enough
 to read on a phone without scrolling. Under 90 means the evidence is too thin
-to beat the other applicants; over 140 and it stops being read. Density is the
+to beat the other applicants; over 150 and it stops being read. Density is the
 goal - every sentence carries a fact, no sentence is throat-clearing.
 Plain text only. No markdown, no headers, no bullet lists.
 
@@ -323,14 +367,19 @@ Reject the draft (return SKIP) if any of these are true:
 - It mentions contractor status, Deel, Remote.com, EOR, payroll, availability,
   or rates.
 - The opening could be dropped into an email to a different company unedited.
-- It cites fewer than two achievements, or both come from the same dimension.
-- Neither achievement names an actual product the sender built.
+- It cites fewer than two pieces of evidence.
+- EVIDENCE 2 is missing, or was taken from `achievements` instead of
+  `leadership_evidence` - an email proving only Delivery reads as mid-level.
+- EVIDENCE 1 names no actual product the sender built.
+- A soft skill is claimed as an adjective ("strong communicator", "great team
+  player", "natural leader") instead of shown through what happened.
+- It misspells the contact's name, the company name, or the job title.
 - The experience cited is generic ("I love building scalable systems") rather
   than measured or product-named.
 - It repeats the unbelievable "security posture 60%" style percentage.
 - The stack overlap names no specific technology from the posting.
 - The signature is not exactly three lines, or includes GitHub or a phone number.
-- Word count is under 90 or over 140.
+- Word count is under 90 or over 150.
 - The subject exceeds 60 characters.
 - It contains any banned opener, word, or phrase above.
 

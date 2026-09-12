@@ -51,9 +51,29 @@ describe('active draft prompt', () => {
     expect(prompt).toMatch(/I'd like to apply for the \{job_title\} role/);
   });
 
-  it('requires two distinct pieces of evidence', () => {
-    expect(prompt).toContain('TWO PIECES OF EVIDENCE, NOT ONE');
-    expect(prompt).toMatch(/two different dimensions/i);
+  it('requires two pieces of evidence from two different ladder areas', () => {
+    expect(prompt).toContain('TWO PIECES OF EVIDENCE, FROM TWO DIFFERENT LADDER AREAS');
+    expect(prompt).toContain('EVIDENCE 1');
+    expect(prompt).toContain('EVIDENCE 2');
+  });
+
+  it('names all five ladder areas, not just the technical three', () => {
+    // The common failure is proving Delivery / Domain Expertise / Problem
+    // Solving only. Communication and Leadership are what read as senior.
+    for (const area of ['Delivery', 'Domain Expertise', 'Problem Solving',
+                        'Communication', 'Leadership']) {
+      expect(prompt, `ladder area ${area}`).toContain(area);
+    }
+  });
+
+  it('sources the seniority evidence from leadership_evidence', () => {
+    expect(prompt).toContain('owner_profile.leadership_evidence');
+    expect(prompt).toMatch(/may not be swapped for a second technical achievement/i);
+  });
+
+  it('bans claiming soft skills as adjectives', () => {
+    expect(prompt).toMatch(/strong communicator|great team player|natural leader/i);
+    expect(prompt).toMatch(/never state a soft skill as an adjective/i);
   });
 
   it('bans the consultant register that caused the rewrite', () => {
@@ -76,20 +96,32 @@ describe('profile feeds the prompt what it asks for', () => {
     expect(profile.achievements.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('carries a leadership_evidence bank the prompt can draw EVIDENCE 2 from', () => {
+    // Without this the prompt asks for Communication/Leadership evidence the
+    // profile cannot supply, and the model either invents it or falls back to
+    // a second delivery metric - which is the mid-level-sounding email.
+    expect(Array.isArray(profile.leadership_evidence)).toBe(true);
+    expect(profile.leadership_evidence.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('keeps leadership entries concrete rather than self-describing adjectives', () => {
+    for (const e of profile.leadership_evidence) {
+      expect(e, e).not.toMatch(/\b(strong|great|excellent|natural) (communicator|leader|team player)\b/i);
+    }
+  });
+
   it('exposes both signature links the prompt requires', () => {
     expect(profile.links.website).toBeTruthy();
     expect(profile.links.linkedin).toBeTruthy();
   });
 
-  it('tells the model how to handle the unusable "security posture" metric', () => {
-    // profile.yaml carries "raised the cloud security posture 60%", which the
-    // prompt itself lists as a confabulation tell. The prompt must say to cite
-    // the concrete actions instead of skipping an otherwise strong achievement.
-    const hasQualitativePct = profile.achievements.some(a => /security posture .*60%/i.test(a));
-    if (hasQualitativePct) {
-      const prompt = loadSystemPrompt(activeVersion());
-      expect(prompt).toMatch(/raised the cloud security posture 60%/i);
-      expect(prompt).toMatch(/cite the concrete actions/i);
+  it('no longer carries the unbelievable "security posture 60%" metric', () => {
+    // The prompt lists that exact phrasing among its confabulation examples,
+    // so the achievement was unusable as written. The underlying work is real;
+    // only the percentage had to go.
+    for (const a of profile.achievements) {
+      expect(a, a).not.toMatch(/security posture.*60\s?%/i);
     }
+    expect(profile.achievements.join(' ')).toMatch(/IAM role design/i);
   });
 });

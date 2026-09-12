@@ -265,3 +265,34 @@ describe('bodyToMinimalHtml', () => {
     expect(html).toBe('<p>one.</p>\n<p>two.</p>');
   });
 });
+
+describe('collapseHardWraps: greeting line', () => {
+  // Regression: the merge rule joined any paragraph not ending in [.?!:"'] to
+  // the next one. A greeting ends in a comma, so every email went out reading
+  // "Hi Jakob, I'd like to apply for the role." on a single line instead of a
+  // proper salutation followed by the body.
+  it('keeps a greeting on its own line', () => {
+    const out = collapseHardWraps('Hi Jakob,\n\nI am applying for the role. It fits my work.');
+    expect(out).toBe('Hi Jakob,\n\nI am applying for the role. It fits my work.');
+  });
+
+  it('handles the other salutation forms', () => {
+    for (const g of ['Hello Sam,', 'Hey Alex,', 'Dear Dr. Chen,', 'Hi there,']) {
+      const out = collapseHardWraps(`${g}\n\nFirst sentence here.`);
+      expect(out.split('\n\n')[0]).toBe(g);
+    }
+  });
+
+  it('still merges a genuine soft-wrapped continuation', () => {
+    // Not a greeting - this must still be joined, which is the whole point of
+    // collapseHardWraps.
+    const out = collapseHardWraps('I built the pipeline and it\n\nran twice as fast.');
+    expect(out).toBe('I built the pipeline and it ran twice as fast.');
+  });
+
+  it('does not treat a long comma-ending sentence as a greeting', () => {
+    const long = 'Higher throughput mattered more than latency on that project,';
+    const out = collapseHardWraps(`${long}\n\nso we tuned for it.`);
+    expect(out).toBe(`${long} so we tuned for it.`);
+  });
+});

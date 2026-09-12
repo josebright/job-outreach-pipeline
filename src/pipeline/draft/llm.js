@@ -174,6 +174,11 @@ export function collapseHardWraps(text) {
     const prevLast = prev.trim().slice(-1);
     const isSigStart = /^https?:\/\//.test(p) || /https?:\/\//.test(out[out.length - 1]);
     const prevEndsSentence = /[.?!:"']/.test(prevLast);
+    // A greeting ends in a comma, not a sentence terminator, so the merge rule
+    // below used to swallow it into the first paragraph - every email went out
+    // reading "Hi Jakob, I'd like to apply..." on one line instead of a proper
+    // salutation. Keep it on its own line.
+    if (isGreeting(prev)) { out.push(p); continue; }
     if (!prevEndsSentence && !isSigStart) {
       // Soft-wrap continuation — merge with previous.
       out[out.length - 1] = `${prev} ${p}`;
@@ -182,6 +187,20 @@ export function collapseHardWraps(text) {
     }
   }
   return out.join('\n\n');
+}
+
+// "Hi Jakob," / "Hello there," / "Dear Dr. Chen," - a short line, ending in a
+// comma, opening with a salutation word. Deliberately narrow so that a real
+// sentence which happens to end in a comma is not mistaken for a greeting.
+function isGreeting(para) {
+  const t = String(para || '').trim();
+  if (!/^(hi|hello|hey|dear|good (morning|afternoon|evening))\b/i.test(t)) return false;
+  if (!t.endsWith(',') || t.length > 42) return false;
+  // Honorifics carry a period ("Dear Dr. Chen,"), so drop them before looking
+  // for a real sentence boundary. A period followed by a capital in what is
+  // left means this is prose, not a salutation.
+  const stripped = t.replace(/\b(dr|mr|mrs|ms|prof|sr|jr|st)\.\s*/gi, '');
+  return !/[.?!]\s+[A-Z]/.test(stripped);
 }
 
 /**
