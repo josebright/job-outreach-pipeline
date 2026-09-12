@@ -280,6 +280,14 @@ function markBounce(msg, bouncedEmail) {
 const BOUNCE_WINDOW_DAYS = 7;
 // Minimum recent volume before the rate is meaningful at all.
 const MIN_SENDS_FOR_ALARM = 10;
+// Minimum absolute bounces before the rate may pause anything. A percentage
+// alone is a hair-trigger at low volume: at 23 sends a SINGLE bounce is 4.3%,
+// which tripped the 3% cap and locked sending for seven days. The pipeline
+// guesses addresses (founders@, hello@), so an occasional bounce is expected
+// and is already handled by auto-suppressing that address. Halting everything
+// is the wrong response to one bad guess - three bounces is a pattern, one is
+// noise.
+const MIN_BOUNCES_FOR_ALARM = 3;
 // How long a pause holds before lifting on its own. Deliberately matched to
 // BOUNCE_WINDOW_DAYS: once the offending sends age out of the measurement
 // window there is nothing left to measure, so holding the pause forever just
@@ -306,18 +314,18 @@ export function bounceRate() {
 
 function maybePauseOnBounceAlarm(config, _stats) {
   const cap = config.send?.bounce_rate_alarm_pct ?? 3;
-  const { total, pct } = bounceRate();
+  const { total, bounces, pct } = bounceRate();
 
   // Too little recent volume to judge either way. Leave any existing pause
   // alone — it expires on its own cooldown via isPaused().
   if (total < MIN_SENDS_FOR_ALARM) return;
 
-  if (pct > cap) {
-    pauseSending({ bounceRatePct: pct, cap });
+  if (pct > cap && bounces >= MIN_BOUNCES_FOR_ALARM) {
+    pauseSending({ bounceRatePct: pct, bounces, total, cap });
   } else if (pauseState().paused) {
     // Window is provably healthy again — lift now rather than making the
     // applicant wait out the rest of the cooldown.
-    clearPause('bounce_rate_recovered', { bounceRatePct: pct, cap });
+    clearPause('bounce_rate_recovered', { bounceRatePct: pct, bounces, total, cap });
   }
 }
 

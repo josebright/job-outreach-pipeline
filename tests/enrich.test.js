@@ -85,7 +85,11 @@ describe('deriveDomain', () => {
       companyId: c2.id, externalJobId: 'g1', title: 'Eng',
       url: 'https://careers.gamma.io/openings/1',
     });
-    expect(deriveDomain({ id: c2.id, website: null })).toBe('careers.gamma.io');
+    // careers./jobs. subdomains are folded down to the apex: that is where mail
+    // is actually delivered and where Hunter indexes addresses. Keeping the
+    // subdomain meant enrichment probed jobs.dropbox.com, found nothing, and
+    // left a 3,000-person company sized "unknown".
+    expect(deriveDomain({ id: c2.id, website: null })).toBe('gamma.io');
   });
 
   it('skips api.smartrecruiters.com job URLs', () => {

@@ -134,7 +134,10 @@ describe('runDraft', () => {
     expect(stats.hookFailed).toBe(0);
   });
 
-  it('skips a company that already has a draft for the same contact+job', async () => {
+  it('does not draft a company again while it already has an open draft', async () => {
+    // Previously the only guard was per-(contact, job), so a second pass simply
+    // moved on to the next contact at the same company. Three runs left several
+    // companies with three drafts queued to three different people.
     seedQualifiedCompanyWithJobAndContact();
     generateDraft.mockResolvedValue({
       subject: 'Hi', body: 'Hi Jane, real hook here.',
@@ -143,8 +146,26 @@ describe('runDraft', () => {
     });
     await runDraft({ config });
     const stats2 = await runDraft({ config });
-    expect(stats2.skippedExisting).toBeGreaterThanOrEqual(1);
+    expect(stats2.skippedCompanyHasDraft).toBeGreaterThanOrEqual(1);
     expect(stats2.draftsCreated).toBe(0);
+  });
+
+  it('drafts the company again once the open draft is rejected', async () => {
+    // Rejection must free the company - otherwise a bad draft permanently
+    // removes that company from the pipeline.
+    const { getDb } = await import('../src/pipeline/db/connection.js');
+    seedQualifiedCompanyWithJobAndContact();
+    generateDraft.mockResolvedValue({
+      subject: 'Hi', body: 'Hi Jane, real hook here.',
+      hookEvidence: 'Ship payments infrastructure',
+      model: 'claude-sonnet-4-6', promptVersion: 'outreach_v1', rawUsage: null,
+    });
+    const first = await runDraft({ config });
+    expect(first.draftsCreated).toBe(1);
+
+    getDb().prepare(`UPDATE draft SET status = 'rejected'`).run();
+    const second = await runDraft({ config });
+    expect(second.draftsCreated).toBe(1);
   });
 
   it('does not bother calling the LLM when the company has no contacts', async () => {

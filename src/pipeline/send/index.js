@@ -23,6 +23,7 @@ import { pollReplies, isPaused } from './reply-detect.js';
 import { effectiveCap } from './warmup.js';
 import { isResearchRole } from '../qualify/roles.js';
 import { isAtsEmail } from '../util/ats-domains.js';
+import { isValidEmail } from '../util/email-domain.js';
 
 export class SendBlockedError extends Error {
   constructor(reason, detail = {}) {
@@ -59,6 +60,12 @@ export async function sendApprovedDraft({
   // on upstream cleanup alone. Not overridable by /approve.
   if (isAtsEmail(recipientEmail)) {
     throw new SendBlockedError('recipient_ats_domain', { recipientEmail });
+  }
+  // Syntactically impossible addresses (founders@&) cannot be delivered and
+  // are a guaranteed bounce. Blocked on the single send path so no upstream
+  // bug can spend sender reputation on one.
+  if (!isValidEmail(recipientEmail)) {
+    throw new SendBlockedError('recipient_invalid_email', { recipientEmail });
   }
   // Deliverability gate. When a min is configured, the recipient must meet
   // it. Fail-closed: missing status is treated as not meeting the bar.
@@ -134,7 +141,7 @@ export async function runSend({ config } = {}) {
     replies: null, paused: false,
     initialSent: 0, researchSent: 0, followup1Sent: 0, followup2Sent: 0,
     blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, blockedUnverified: 0,
-    blockedAtsDomain: 0, errors: 0,
+    blockedAtsDomain: 0, blockedInvalidEmail: 0, errors: 0,
   };
   const minEmailStatus = config?.enrichment?.min_email_status_for_auto_send || null;
 
@@ -191,8 +198,9 @@ export async function runSend({ config } = {}) {
       stats.initialSent++;
     } catch (err) {
       catchBlocked(err, stats);
-      if (err.name === 'SendBlockedError' && err.reason === 'recipient_ats_domain') {
-        quarantineAtsContact(draft, contact, stats);
+      if (err.name === 'SendBlockedError' &&
+          (err.reason === 'recipient_ats_domain' || err.reason === 'recipient_invalid_email')) {
+        quarantineAtsContact(draft, contact, stats, err.reason);
       }
     }
     if (getSendCount('initial') >= caps.initial) break;
@@ -306,10 +314,13 @@ export async function runSend({ config } = {}) {
  * it drops out of /list and the next enrich pass goes looking for a real
  * address for that company instead.
  */
-function quarantineAtsContact(draft, contact, stats) {
+function quarantineAtsContact(draft, contact, stats, reason = 'recipient_ats_domain') {
+  const why = reason === 'recipient_invalid_email'
+    ? 'is not a valid email address'
+    : 'is on an ATS/job-board domain and cannot receive mail';
   setContactEmailStatus(contact.id, 'invalid');
   updateDraftStatus(draft.id, 'rejected', {
-    reason: `auto: recipient ${contact.email} is on an ATS/job-board domain and cannot receive mail`,
+    reason: `auto: recipient ${contact.email} ${why}`,
   });
   stats.atsDraftsQuarantined = (stats.atsDraftsQuarantined || 0) + 1;
   logger.warn({ draftId: draft.id, contactId: contact.id, email: contact.email },
@@ -323,6 +334,7 @@ function catchBlocked(err, stats) {
     else if (err.reason === 'daily_cap_reached') stats.blockedCap++;
     else if (err.reason === 'recipient_unverified') stats.blockedUnverified++;
     else if (err.reason === 'recipient_ats_domain') stats.blockedAtsDomain++;
+    else if (err.reason === 'recipient_invalid_email') stats.blockedInvalidEmail++;
     else stats.errors++;
     logger.warn({ reason: err.reason, detail: err.detail }, 'send blocked');
     return;

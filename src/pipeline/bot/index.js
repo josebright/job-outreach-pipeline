@@ -10,7 +10,7 @@ import {
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
   handleDiag, handleSetSize,
-  handleSuppress, handleUnblock, handleSuppressed, handleUnpause,
+  handleSuppress, handleUnblock, handleSuppressed, handleUnpause, handleCleanup,
 } from './handlers.js';
 
 let running = null;
@@ -102,6 +102,7 @@ export function startBot() {
   bot.command('unblock',    guard('unblock',    (ctx) => handleUnblock(argOf(ctx))));
   bot.command('suppressed', guard('suppressed', () => handleSuppressed()));
   bot.command('unpause',    guard('unpause',    () => handleUnpause()));
+  bot.command('cleanup',    guard('cleanup',    () => handleCleanup()));
 
   bot.command('addcompany', guard('addcompany', async (ctx) => {
     const text = ctx.message?.text || '';

@@ -23,6 +23,7 @@ import { queriesFor, rankPerson, roleTypeForTitle, isSmallCo } from './target.js
 import { contactsFromPosting, roleTypeFromLocalPart } from './from-posting.js';
 import { guessDomain } from './domain-guess.js';
 import { isAtsHost } from '../util/ats-domains.js';
+import { normalizeCompanyDomain, isValidEmail } from '../util/email-domain.js';
 
 const PROVIDER = 'hunter';
 
@@ -113,6 +114,10 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
             .run(`https://${guessed}`, company.id);
         } catch { /* non-fatal */ }
       }
+    }
+    if (domain && !isValidEmail(`probe@${domain}`)) {
+      logger.warn({ companyId: company.id, domain }, 'enrich: implausible domain, skipping');
+      domain = null;
     }
     if (!domain) { stats.skippedNoDomain++; continue; }
 
@@ -258,6 +263,7 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
         else stats.invalid++;
 
         if (statusLabel === 'invalid') continue;
+        if (!isValidEmail(emailData.value)) { stats.skippedBadEmail = (stats.skippedBadEmail || 0) + 1; continue; }
 
         const { created } = upsertContact({
           companyId: company.id,
@@ -304,6 +310,7 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
             }
             const v = await emailVerifier({ email: c.email });
             if (v.status === 'invalid') { stats.invalid++; continue; }
+            if (!isValidEmail(c.email)) { stats.skippedBadEmail = (stats.skippedBadEmail || 0) + 1; continue; }
 
             const { created } = upsertContact({
               companyId: company.id,
@@ -343,6 +350,10 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
             throw err;
           }
           const email = `${p.local}@${domain}`;
+          // Last line of defence. deriveDomain is fixed, but a garbage address
+          // must never be persisted no matter which path produced it - six
+          // founders@& contacts reached the approved queue this way.
+          if (!isValidEmail(email)) { stats.skippedBadEmail = (stats.skippedBadEmail || 0) + 1; continue; }
           const raw = await emailVerifier({ email });
           const status = interpretVerifierStatus(raw.raw?.status || raw.status, provider, count.personal);
           if (status === 'invalid') continue;
@@ -387,7 +398,13 @@ export function deriveDomain(company) {
   if (company.website) {
     try {
       const u = new URL(company.website.startsWith('http') ? company.website : `https://${company.website}`);
-      return u.hostname.replace(/^www\./, '');
+      // new URL() is far looser than DNS: 'https://&' parses fine and reports
+      // the hostname '&'. That became the company's mail domain and the pattern
+      // probe built founders@& - six of which reached the approved queue.
+      // normalizeCompanyDomain also folds jobs./careers. down to the apex,
+      // which is where mail and Hunter's index actually live.
+      const host = normalizeCompanyDomain(u.hostname);
+      if (host) return host;
     } catch { /* fall through */ }
   }
   // Try to derive from a job URL for this company.
@@ -401,7 +418,7 @@ export function deriveDomain(company) {
       // api.smartrecruiters.com/v1/companies/acme/postings/...) are not the
       // company's real domain. Skip those — see util/ats-domains.js.
       if (isAtsHost(u.hostname)) return null;
-      return u.hostname.replace(/^www\./, '');
+      return normalizeCompanyDomain(u.hostname);
     } catch { /* ignore */ }
   }
   return null;

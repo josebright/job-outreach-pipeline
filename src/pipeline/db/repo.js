@@ -441,6 +441,21 @@ export function setDraftDeliverabilityOverride(id, override = true) {
 /**
  * Any pending_review draft for this contact+job (used to skip re-draft).
  */
+/**
+ * True when a company already has a draft awaiting the applicant's decision.
+ * 'sent' is deliberately excluded - re-contact after a send is governed by the
+ * 90-day rule in gate5, not here.
+ */
+export function companyHasOpenDraft(companyId) {
+  const row = getDb().prepare(`
+    SELECT 1 FROM draft d
+    JOIN contact c ON c.id = d.contact_id
+    WHERE c.company_id = ? AND d.status IN ('pending_review','approved')
+    LIMIT 1
+  `).get(companyId);
+  return Boolean(row);
+}
+
 export function existingDraftFor(contactId, jobId) {
   return getDb().prepare(`
     SELECT * FROM draft

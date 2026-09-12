@@ -5,7 +5,7 @@
 import {
   companiesByStatus, contactsByCompany, jobsByCompany,
   createDraft, existingDraftFor, updateCompanyEnrichment,
-  isCompanySuppressed,
+  isCompanySuppressed, companyHasOpenDraft,
 } from '../db/repo.js';
 import { charge, usage } from '../enrich/cost-guard.js';
 import { loadProfile } from './profile.js';
@@ -74,6 +74,19 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     // but before this draft pass.
     if (isCompanySuppressed(company.id)) {
       stats.skippedSuppressed = (stats.skippedSuppressed || 0) + 1;
+      continue;
+    }
+
+    // One open draft per company. The per-(contact, job) check further down
+    // only prevents re-drafting the SAME contact, so each run picked the next
+    // contact at a company that already had a draft waiting - after three runs
+    // Bitwarden, Chronograph, Spade and four others each had three drafts
+    // queued to three different people. Three cold emails from one applicant
+    // into one company reads as spray-and-pray and burns LLM credit on it.
+    // Rejected and sent drafts do not block: rejection should free the company
+    // to be re-drafted, and re-contact after a send is gate5's 90-day rule.
+    if (companyHasOpenDraft(company.id)) {
+      stats.skippedCompanyHasDraft = (stats.skippedCompanyHasDraft || 0) + 1;
       continue;
     }
 

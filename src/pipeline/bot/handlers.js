@@ -5,7 +5,7 @@ import {
   draftsByStatus, draftById, contactById, companyById, jobById,
   contactsByCompany, jobsByCompany, existingDraftFor,
   updateDraftStatus, createDraft,
-  companyBySlug, setCompanySizeManual,
+  companyBySlug, setCompanySizeManual, setContactEmailStatus,
   suppressCompany, unsuppressCompany, isCompanySuppressed, listSuppressedCompanies,
   setDraftDeliverabilityOverride,
 } from '../db/repo.js';
@@ -14,6 +14,8 @@ import { recordEvent } from '../db/event-log.js';
 import { sendMessage } from '../send/gmail.js';
 import { runSend } from '../send/index.js';
 import { pauseState, clearPause, bounceRate } from '../send/reply-detect.js';
+import { isAtsEmail } from '../util/ats-domains.js';
+import { isValidEmail } from '../util/email-domain.js';
 import { runReport } from '../report/index.js';
 import { usage } from '../enrich/cost-guard.js';
 import { runDiscover } from '../discover/index.js';
@@ -239,6 +241,84 @@ export async function handleSend() {
   } catch (err) {
     return `Send failed: ${escapeHtml(err.message)}`;
   }
+}
+
+/* ── /cleanup: purge unsendable and superseded drafts ─────── */
+
+/**
+ * Sweep the open queue for drafts that should never be sent. Everything here
+ * was generated BEFORE the corresponding fix landed, so the fixes alone do not
+ * clear it - these rows just sit in /list waiting to be approved by mistake.
+ *
+ * Four categories, in order of severity:
+ *   1. Unsendable recipient - an invalid address (founders@&, produced when a
+ *      junk company website parsed as a hostname) or an ATS/job-board domain
+ *      (founders@api.smartrecruiters.com). Guaranteed bounces. The contact is
+ *      marked invalid too, so enrich looks for a real address next run.
+ *   2. Superseded prompt - drafts written by an earlier prompt version. The
+ *      retired outreach_v2 variants opened with "Is the {role} hire for ...?",
+ *      which reads as a consultant qualifying an opportunity rather than a
+ *      candidate applying.
+ *   3. Duplicates - more than one open draft for the same company. Keeps the
+ *      newest (it used the current prompt) and rejects the rest.
+ * Nothing already sent is touched.
+ */
+export function handleCleanup() {
+  const config = loadConfig();
+  const current = config.llm?.prompt_version;
+  const open = draftsByStatus('pending_review').concat(draftsByStatus('approved'));
+  if (open.length === 0) return 'Nothing to clean - no open drafts.';
+
+  const killed = { unsendable: [], superseded: [], duplicate: [] };
+  const survivors = [];
+
+  for (const d of open) {
+    const contact = contactById(d.contact_id);
+    const email = contact?.email || '';
+    const label = `#${d.id} ${(companyById(contact?.company_id)?.name || '?').slice(0, 22)}`;
+
+    if (!contact || !isValidEmail(email) || isAtsEmail(email)) {
+      updateDraftStatus(d.id, 'rejected', { reason: `cleanup: unsendable recipient ${email || '(none)'}` });
+      if (contact) setContactEmailStatus(contact.id, 'invalid');
+      killed.unsendable.push(`${label} -> ${email || '(no contact)'}`);
+      continue;
+    }
+    if (current && d.prompt_version && d.prompt_version !== current) {
+      updateDraftStatus(d.id, 'rejected', { reason: `cleanup: superseded prompt ${d.prompt_version}` });
+      killed.superseded.push(`${label} (${d.prompt_version})`);
+      continue;
+    }
+    survivors.push({ draft: d, companyId: contact.company_id, label });
+  }
+
+  // Collapse duplicates: newest open draft per company wins.
+  const byCompany = new Map();
+  for (const s of survivors) {
+    const prev = byCompany.get(s.companyId);
+    if (!prev) { byCompany.set(s.companyId, s); continue; }
+    const loser = prev.draft.id < s.draft.id ? prev : s;
+    const winner = prev.draft.id < s.draft.id ? s : prev;
+    updateDraftStatus(loser.draft.id, 'rejected', { reason: 'cleanup: duplicate draft for this company' });
+    killed.duplicate.push(loser.label);
+    byCompany.set(s.companyId, winner);
+  }
+
+  const total = killed.unsendable.length + killed.superseded.length + killed.duplicate.length;
+  if (total === 0) return `Queue is clean - all ${open.length} open draft(s) look sendable and current.`;
+
+  const section = (title, rows) => rows.length === 0 ? [] : [
+    '', `<b>${title}</b> (${rows.length})`,
+    ...rows.slice(0, 15).map(r => `  ${escapeHtml(r)}`),
+    rows.length > 15 ? `  ...and ${rows.length - 15} more` : '',
+  ].filter(Boolean);
+
+  return [
+    `<b>Cleanup: rejected ${total} of ${open.length} open draft(s)</b>`,
+    ...section('Unsendable recipient', killed.unsendable),
+    ...section('Superseded prompt', killed.superseded),
+    ...section('Duplicate per company', killed.duplicate),
+    '', `${byCompany.size} draft(s) left in the queue. Use /list.`,
+  ].join('\n');
 }
 
 /* ── bounce-alarm pause ───────────────────────────────────── */
@@ -523,6 +603,7 @@ export function handleHelp() {
     '/unblock &lt;slug&gt; — remove a company from the blocklist',
     '/suppressed — list all suppressed companies',
     '/unpause — lift the bounce-alarm send pause',
+    '/cleanup — reject unsendable, superseded and duplicate drafts',
     '/status — pipeline funnel snapshot',
     '/diag — deep pipeline diagnostic (pool composition, budgets)',
     '/whoami — show your Telegram chat id (for env config)',
