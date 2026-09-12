@@ -51,13 +51,16 @@ async function withTimeoutAndRetry(fn, { timeoutMs, retries }) {
   throw lastErr;
 }
 
-const DRAFT_TOOL = {
+// Exported so tests can pin it against the prompt's stated limits - the two
+// used to disagree (schema 55 vs prompt 60), which quietly pushed the model to
+// drop the sender's name from the subject to fit.
+export const DRAFT_TOOL = {
   name: 'return_draft',
   description: 'Return the drafted outreach email as structured JSON.',
   input_schema: {
     type: 'object',
     properties: {
-      subject:       { type: 'string', maxLength: 55 },
+      subject:       { type: 'string', maxLength: 60 },
       body:          { type: 'string' },
       hook_evidence: { type: 'string', description: 'Exact substring quoted from job_posting.' },
     },

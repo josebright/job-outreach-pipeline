@@ -394,7 +394,7 @@ export async function handleDiag() {
   }
 
   // Per-variant telemetry. Segments sends/replies by the prompt variant
-  // (V1_OBSERVATION / V2_QUESTION / V3_DIRECT) that produced each draft.
+  // (V1_ROLE_FIT / V2_EVIDENCE / V3_DIRECT) that produced each draft.
   // Only meaningful once N >= ~50 per variant — reply-rate below that
   // is dominated by noise. Reply-rate column shown even at small N for
   // observability, but do NOT tune subjects based on it until sample

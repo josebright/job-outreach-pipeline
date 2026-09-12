@@ -216,6 +216,26 @@ export async function runSend({ config } = {}) {
     if (getSendCount('initial_research') >= caps.initial_research) break;
   }
 
+  // 3-4. Follow-ups. Disabled by default (send.followups_enabled).
+  //
+  // Two separate defects made these actively harmful:
+  //   - draftsDueForFollowup('followup_2') only checks that the INITIAL is 10+
+  //     days old. It never checks that follow-up 1 went out, let alone how long
+  //     ago. Any backlog of older sends therefore matches BOTH queries in the
+  //     same pass, and the two loops below fire back to back - one recipient got
+  //     "Just bumping this up" and "Closing the loop on my earlier note" 60
+  //     seconds apart.
+  //   - followupBody() pitches contractor status via Deel/Remote.com and adds a
+  //     3-line signature with LinkedIn. Both are explicitly banned by the draft
+  //     prompt for the initial email, so the follow-ups undercut the candidate
+  //     positioning the initial email works to establish.
+  // Re-enabling requires fixing BOTH, not just flipping the flag.
+  if (!config.send?.followups_enabled) {
+    logger.info('follow-ups disabled (send.followups_enabled=false)');
+    logger.info(stats, 'send pass complete');
+    return stats;
+  }
+
   // 3. Follow-up 1 (day 4).
   for (const draft of draftsDueForFollowup('followup_1')) {
     const contact = contactById(draft.contact_id);

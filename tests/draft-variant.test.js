@@ -15,7 +15,7 @@ describe('pickDraftVariant: determinism', () => {
   });
 
   it('returns one of the three known variants', () => {
-    const valid = new Set(['V1_OBSERVATION', 'V2_QUESTION', 'V3_DIRECT']);
+    const valid = new Set(['V1_ROLE_FIT', 'V2_EVIDENCE', 'V3_DIRECT']);
     for (const slug of ['a', 'b', 'c', 'd', 'e', 'foo', 'bar', 'baz']) {
       expect(valid.has(pickDraftVariant(slug, '51-200'))).toBe(true);
     }
@@ -28,12 +28,12 @@ describe('pickDraftVariant: determinism', () => {
 });
 
 describe('pickDraftVariant: size-based weighting', () => {
-  // Given ~200 random slugs, small companies should bias toward V2_QUESTION
+  // Given ~200 random slugs, small companies should bias toward V2_EVIDENCE
   // (50% target), mid+ should be evenly split. These bounds are wide
   // because it's a real hash — we only want to catch grossly-broken routing.
 
   function distribution(band, slugs) {
-    const counts = { V1_OBSERVATION: 0, V2_QUESTION: 0, V3_DIRECT: 0 };
+    const counts = { V1_ROLE_FIT: 0, V2_EVIDENCE: 0, V3_DIRECT: 0 };
     for (const s of slugs) counts[pickDraftVariant(s, band)]++;
     return counts;
   }
@@ -41,20 +41,20 @@ describe('pickDraftVariant: size-based weighting', () => {
     return Array.from({ length: n }, (_, i) => `co-${i}-${(i * 7919) % 997}`);
   }
 
-  it('small (<=50) bands bias toward V2_QUESTION (target ~50%)', () => {
+  it('small (<=50) bands bias toward V2_EVIDENCE (target ~50%)', () => {
     const c = distribution('11-50', slugs(200));
-    const total = c.V1_OBSERVATION + c.V2_QUESTION + c.V3_DIRECT;
+    const total = c.V1_ROLE_FIT + c.V2_EVIDENCE + c.V3_DIRECT;
     // Expect V2 to be the dominant bucket — at least 40% and clearly ahead of the other two.
-    expect(c.V2_QUESTION / total).toBeGreaterThan(0.4);
-    expect(c.V2_QUESTION).toBeGreaterThan(c.V1_OBSERVATION);
-    expect(c.V2_QUESTION).toBeGreaterThan(c.V3_DIRECT);
+    expect(c.V2_EVIDENCE / total).toBeGreaterThan(0.4);
+    expect(c.V2_EVIDENCE).toBeGreaterThan(c.V1_ROLE_FIT);
+    expect(c.V2_EVIDENCE).toBeGreaterThan(c.V3_DIRECT);
   });
 
   it('mid+ (201-500) bands rotate ~evenly across all three', () => {
     const c = distribution('201-500', slugs(300));
     const total = 300;
     // Each bucket ~1/3 (loose bound: 20-45%)
-    for (const v of ['V1_OBSERVATION', 'V2_QUESTION', 'V3_DIRECT']) {
+    for (const v of ['V1_ROLE_FIT', 'V2_EVIDENCE', 'V3_DIRECT']) {
       const share = c[v] / total;
       expect(share).toBeGreaterThan(0.20);
       expect(share).toBeLessThan(0.45);
@@ -63,7 +63,7 @@ describe('pickDraftVariant: size-based weighting', () => {
 
   it('unknown size falls back to even 3-way rotation', () => {
     const c = distribution(null, slugs(300));
-    for (const v of ['V1_OBSERVATION', 'V2_QUESTION', 'V3_DIRECT']) {
+    for (const v of ['V1_ROLE_FIT', 'V2_EVIDENCE', 'V3_DIRECT']) {
       expect(c[v]).toBeGreaterThan(50);
     }
   });

@@ -60,6 +60,11 @@ const sendSchema = z.object({
   reply_to: z.string().email().optional(),
   daily_cap_initial: z.number().int().positive().default(15),
   daily_cap_followup: z.number().int().positive().default(15),
+  // Follow-ups are OFF by default. The two canned follow-up bodies pitched
+  // contractor/Deel onboarding, which reads as a vendor touting availability
+  // rather than a candidate applying - the exact positioning the draft prompt
+  // forbids in the initial email. Turn back on only with rewritten bodies.
+  followups_enabled: z.boolean().default(false),
   // Sunday is a low-signal day for cold outreach (replies dry up, Gmail
   // penalizes weekend blasters). Cap independently.
   sunday_cap_initial: z.number().int().nonnegative().default(3),

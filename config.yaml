@@ -183,7 +183,7 @@ llm:
   drafts_model: claude-sonnet-4-6
   classifier_provider: gemini
   classifier_model: gemini-2.0-flash
-  prompt_version: outreach_v2      # 3-variant rotation (observation / question / direct)
+  prompt_version: outreach_v3      # candidate-voice rotation (role-fit / evidence / direct)
   monthly_budget: 500          # cap on generateDraft calls per month; 500 covers ~15/day plus retries
 
 # ── Send ───────────────────────────────────────────────────────
@@ -194,6 +194,7 @@ send:
   reply_to: uchennaugwumadu8@gmail.com     # remove once mail forwarding is set up on the domain
   daily_cap_initial: 15                 # Mon-Sat weekday cap once warm-up completes
   daily_cap_followup: 15
+  followups_enabled: false              # follow-ups dropped - see send/index.js
   sunday_cap_initial: 3                 # Sunday-specific cap (low signal, spam-prone)
   research_daily_cap: 2                 # extra bucket for Research Engineer roles; does not eat main cap
   send_window_local_start: "08:30"

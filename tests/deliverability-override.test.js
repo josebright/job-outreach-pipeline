@@ -37,7 +37,7 @@ function seedRiskyDraft() {
   const d = createDraft({
     contactId: contactResult.id, jobId: j.id,
     subject: 's', body: 'b', promptVersion: 'v2', hookEvidence: null,
-    hookVerified: true, model: 'stub', variant: 'V1_OBSERVATION',
+    hookVerified: true, model: 'stub', variant: 'V1_ROLE_FIT',
   });
   return { draftId: d.id, contactEmail: email, job: j };
 }
@@ -76,7 +76,7 @@ describe('deliverability override', () => {
     const d = createDraft({
       contactId: contact.id, jobId: j.id,
       subject: 's', body: 'b', promptVersion: 'v2', hookEvidence: null,
-      hookVerified: true, model: 'stub', variant: 'V1_OBSERVATION',
+      hookVerified: true, model: 'stub', variant: 'V1_ROLE_FIT',
     });
     const out = handleApprove(d.id);
     expect(out).not.toMatch(/overrides the deliverability gate/);
