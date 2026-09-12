@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { env } from '../config/loader.js';
-import { pickDraftVariant } from './variant.js';
+import { pickDraftVariant, hashSlug } from './variant.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,6 +84,15 @@ export async function generateDraft({
   // between V1/V2/V3, avoiding the "every email looks the same" tell.
   const variant = pickDraftVariant(company.slug, company.size_band);
 
+  // Rotate the leadership evidence per company. Left to its own judgement the
+  // model picks whichever entry reads "most relevant" and picks the SAME one
+  // every time - a live test of three different companies produced the
+  // identical TechVenia sentence in all three. At 15 sends a day that is a
+  // recognisable template. Deterministic per slug, like the variant pick, so
+  // re-drafting one company stays stable.
+  const leadershipEvidence = rotateForCompany(profile?.leadership_evidence, company.slug);
+  const rotatedProfile = { ...profile, leadership_evidence: leadershipEvidence };
+
   const userPayload = {
     variant,
     // The EXACT job title as it appears in the ATS. The subject line MUST
@@ -101,7 +110,7 @@ export async function generateDraft({
       title: contact.title || null,
       role_type: contact.role_type,
     },
-    owner_profile: profile,
+    owner_profile: rotatedProfile,
     track,
   };
 
@@ -127,6 +136,20 @@ export async function generateDraft({
     variant,
     rawUsage: res.usage || null,
   };
+}
+
+/**
+ * Rotate a list so a different entry sits first for each company, while the
+ * order stays stable for any given company. The prompt is told to prefer the
+ * first entry that genuinely fits, so this spreads usage across the whole bank
+ * instead of hammering one entry.
+ *
+ * Exported for tests.
+ */
+export function rotateForCompany(list, slug) {
+  if (!Array.isArray(list) || list.length < 2) return list || [];
+  const offset = hashSlug(String(slug || 'unknown')) % list.length;
+  return [...list.slice(offset), ...list.slice(0, offset)];
 }
 
 /**

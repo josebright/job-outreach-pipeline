@@ -63,6 +63,9 @@ export function handleShow(id) {
 
   return [
     `<b>Draft #${d.id}</b>  status=${d.status}  hook_verified=${d.hook_verified ? 'yes' : 'NO'}${d.deliverability_override ? '  <b>deliverability_override=yes</b>' : ''}`,
+    // Word count is surfaced because the model does not reliably self-enforce
+    // the prompt's 90-120 bound; seeing it is how drift gets caught early.
+    `<b>Length:</b> ${String(d.body || '').split(/\s+/).filter(Boolean).length} words${d.variant ? `  <b>Variant:</b> ${escapeHtml(d.variant)}` : ''}`,
     `<b>Company:</b> ${escapeHtml(company?.name || '?')}  (score ${company?.score ?? '?'})`,
     `<b>Contact:</b> ${escapeHtml(contact?.full_name || 'unknown')} &lt;${escapeHtml(contact?.email || '?')}&gt;`,
     `<b>Email status:</b> ${escapeHtml(contact?.email_status || 'unknown')}`,

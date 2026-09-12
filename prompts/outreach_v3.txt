@@ -76,7 +76,7 @@ INPUTS
 Return exactly this JSON, nothing else:
 {
   "subject": "...",             // <= 60 characters
-  "body": "...",                // 90-150 words, plain text, no markdown
+  "body": "...",                // 90-120 words, plain text, no markdown
   "hook_evidence": "..."        // an exact substring quoted from job_posting
 }
 
@@ -156,10 +156,41 @@ So every body cites exactly TWO pieces of evidence:
   EVIDENCE 2 - from owner_profile.leadership_evidence.
     Communication or Leadership. This is the differentiator, so it is not
     optional and it may not be swapped for a second technical achievement.
-    Pick the entry that fits the company: mentoring and code-standards work for
-    a team that is scaling, stakeholder and non-engineer communication where
-    the role is cross-functional, ownership where they need someone to run
-    with something unsupervised.
+
+    That list arrives PRE-ORDERED for this specific company. Work down it and
+    take the FIRST entry that genuinely fits this posting. Relevance still
+    wins - never force an entry that does not fit, a mismatched leadership
+    story is worse than a repeated one - but when two or more entries fit,
+    take the EARLIEST of them, never the one that reads best in isolation.
+
+    The reason is volume. The sender writes to many companies. If every draft
+    reaches for the single most quotable entry, every email he sends carries an
+    identical second paragraph, and that is what a template looks like from the
+    outside. The ordering exists to spread the load across entries that are all
+    strong. Honour it whenever the fit is close.
+
+Open paragraph 2 with the FACT, not with a maxim. A live test produced these
+three openers for three different companies:
+
+    "The standard only holds if the team around you holds it too."
+    "The part that compounds over time is the bar you set around the code."
+    "The part that holds a codebase together after it grows is whether
+     standards survive handoff."
+
+Same move three times: a general truth about engineering, delivered to the
+reader, before any evidence. It is a tell, it wastes words from a tight budget,
+and lecturing the recipient about what lasts in a codebase is the consultant
+register coming back in through the side door. Banned: "The part that...",
+"What lasts is...", "The standard only holds...", "What compounds is...", and
+any variation that states an engineering truism before the fact. Start with
+what was done: "At TechVenia I introduced testing, code review and linting..."
+
+Both evidence lists are written as resume bullets, starting with a bare verb
+("Ran internal DevSecOps workshops...", "Mentored 50+ developers..."). Do not
+paste them in. Rewrite each as a first-person sentence in the flow of the
+email, normally anchored to where it happened: "At CapacityDey I ran internal
+DevSecOps workshops on secret management...". A bare verb opening reads as a CV
+fragment dropped into prose and breaks the voice of the whole email.
 
 Frame EVIDENCE 2 in terms of engineering outcomes, not personality. "Introduced
 testing, code review and linting at TechVenia and brought the interns onto it,
@@ -257,10 +288,17 @@ Write as someone who wants to join the team, not someone who wants to fix it.
 
 BODY (STRICT)
 
-90-150 words. Long enough to carry two real pieces of evidence, short enough
-to read on a phone without scrolling. Under 90 means the evidence is too thin
-to beat the other applicants; over 150 and it stops being read. Density is the
-goal - every sentence carries a fact, no sentence is throat-clearing.
+90-120 words. Long enough to carry two real pieces of evidence, short enough to
+read on a phone without scrolling. Under 90 means the evidence is too thin to
+beat the other applicants; over 120 and it stops being read.
+
+Count the words before returning, then cut. Drafts reliably come back 20-30
+words over because every sentence feels necessary while it is being written.
+They are not. Density is the goal - every sentence carries a fact and no
+sentence is throat-clearing. The usual offenders, in the order to cut them:
+a maxim about engineering, a framing clause before the evidence ("which is the
+kind of ... your posting describes"), and any restatement of what the posting
+already says. The reader wrote the posting; he does not need it read back.
 Plain text only. No markdown, no headers, no bullet lists.
 
 Greeting: "Hi {contact.first_name}," on its own line. If contact.full_name is
@@ -373,13 +411,14 @@ Reject the draft (return SKIP) if any of these are true:
 - EVIDENCE 1 names no actual product the sender built.
 - A soft skill is claimed as an adjective ("strong communicator", "great team
   player", "natural leader") instead of shown through what happened.
+- Paragraph 2 opens with a maxim about engineering instead of the fact.
 - It misspells the contact's name, the company name, or the job title.
 - The experience cited is generic ("I love building scalable systems") rather
   than measured or product-named.
 - It repeats the unbelievable "security posture 60%" style percentage.
 - The stack overlap names no specific technology from the posting.
 - The signature is not exactly three lines, or includes GitHub or a phone number.
-- Word count is under 90 or over 150.
+- Word count is under 90 or over 120.
 - The subject exceeds 60 characters.
 - It contains any banned opener, word, or phrase above.
 
