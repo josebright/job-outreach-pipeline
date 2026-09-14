@@ -7,6 +7,7 @@
 import {
   companiesByStatus, companyById, contactCountForCompany, upsertContact,
   updateCompanyEnrichment,
+  usableContactCountForCompany, markEnrichAttempt, enrichAttemptedWithinDays, addressBlockRules,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { logger } from '../util/logger.js';
@@ -23,9 +24,12 @@ import { queriesFor, rankPerson, roleTypeForTitle, isSmallCo } from './target.js
 import { contactsFromPosting, roleTypeFromLocalPart } from './from-posting.js';
 import { guessDomain } from './domain-guess.js';
 import { isAtsHost } from '../util/ats-domains.js';
+import { isAddressBlocked } from '../draft/rejection-rules.js';
 import { normalizeCompanyDomain, isValidEmail } from '../util/email-domain.js';
 
 const PROVIDER = 'hunter';
+// A company with no usable address is retried at most this often.
+const ENRICH_RETRY_DAYS = 7;
 
 // Local parts we never accept even as a last-resort fallback.
 const NO_REPLY = new Set(['noreply', 'no-reply', 'donotreply', 'do-not-reply']);
@@ -101,18 +105,38 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
     ? [companyById(onlyForCompanyId)].filter(Boolean)
     : companiesByStatus('qualified').slice(0, maxCompanies);
 
+  // Address rules learned from the applicant's rejections, loaded once per pass.
+  const addressRules = addressBlockRules();
+
   for (const company of companies) {
-    if (contactCountForCompany(company.id) > 0) continue;      // already enriched
+    // Skip companies that already have an address we can use. The old check
+    // counted ALL contact rows, so a company whose only address had been
+    // invalidated - bounced, rejected, blocked by a rule - could never be
+    // enriched again and stalled forever with nobody to write to.
+    if (usableContactCountForCompany(company.id) > 0) continue;
+    // Retry those at most weekly, or every /run re-spends Hunter credits on a
+    // company that simply has no findable address. The manual /draft <slug>
+    // path bypasses this because the applicant asked for that company.
+    if (!onlyForCompanyId && enrichAttemptedWithinDays(company.id, ENRICH_RETRY_DAYS)) {
+      stats.skippedCooldown = (stats.skippedCooldown || 0) + 1;
+      continue;
+    }
+    markEnrichAttempt(company.id);
     let domain = deriveDomain(company);
     if (!domain) {
       // Try a cheap DNS-based guess from the company slug/name before giving up.
-      const guessed = await guessDomain(company).catch(() => null);
+      const guessed = await guessDomain(company).catch((err) => {
+        logger.warn({ err: err.message, companyId: company.id }, 'enrich: DNS domain guess failed');
+        return null;
+      });
       if (guessed) {
         domain = guessed;
         try {
           getDb().prepare(`UPDATE company SET website = ?, updated_at = datetime('now') WHERE id = ?`)
             .run(`https://${guessed}`, company.id);
-        } catch { /* non-fatal */ }
+        } catch (err) {
+          logger.warn({ err: err.message, companyId: company.id, guessed }, 'enrich: could not save guessed website');
+        }
       }
     }
     if (domain && !isValidEmail(`probe@${domain}`)) {
@@ -211,7 +235,9 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
         // one indexed person is enough for future email-finder calls.
         if (res.pattern && !company.email_pattern) {
           try { updateCompanyEnrichment(company.id, { emailPattern: res.pattern }); }
-          catch { /* non-fatal */ }
+          catch (err) {
+            logger.warn({ err: err.message, companyId: company.id }, 'enrich: could not save email pattern');
+          }
           company.email_pattern = res.pattern;
         }
         for (const e of res.emails || []) {
@@ -229,7 +255,11 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
 
       // Rank and keep top 3.
       const uniqueEmails = new Map();
-      const ranked = [...pool.values()].sort((a, b) => b._rank - a._rank).slice(0, 3);
+      // Drop addresses the applicant has ruled out BEFORE ranking, so a blocked
+      // founders@ hit never takes one of the three slots from a named person.
+      const ranked = [...pool.values()]
+        .filter(e => !isAddressBlocked(e.value, addressRules))
+        .sort((a, b) => b._rank - a._rank).slice(0, 3);
       for (const e of ranked) {
         uniqueEmails.set(e.value.toLowerCase(), {
           emailData: e,
@@ -300,6 +330,12 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
             found.filter(c => c.quality === 'generic' && !NO_REPLY.has(c.local))
           );
           for (const c of candidates) {
+            // Both checks are free, so they run BEFORE a verifier credit is
+            // charged: a malformed address or one the applicant has ruled out
+            // (e.g. founders@ after "has founders in the email") can never be
+            // drafted, so paying to verify it is pure waste.
+            if (!isValidEmail(c.email)) { stats.skippedBadEmail = (stats.skippedBadEmail || 0) + 1; continue; }
+            if (isAddressBlocked(c.email, addressRules)) continue;
             try { charge(PROVIDER, 1, budget); }
             catch (err) {
               if (err.name === 'BudgetExceededError') {
@@ -310,7 +346,6 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
             }
             const v = await emailVerifier({ email: c.email });
             if (v.status === 'invalid') { stats.invalid++; continue; }
-            if (!isValidEmail(c.email)) { stats.skippedBadEmail = (stats.skippedBadEmail || 0) + 1; continue; }
 
             const { created } = upsertContact({
               companyId: company.id,
@@ -342,8 +377,12 @@ export async function runEnrich({ config, maxCompanies = 200, onlyForCompanyId =
       // TO probes. For those providers, Hunter's `accept_all` really
       // means "we can't tell" — we accept as 'risky', not 'invalid'.
       // See enrich/mail-provider.js.
-      if (contactCountForCompany(company.id) === 0) {
+      if (usableContactCountForCompany(company.id) === 0) {
         for (const p of buildPatternTiers(company)) {
+          // Skip learned-blocked aliases BEFORE charging: probing founders@ after
+          // the applicant rejected founders@ spends a credit on an address that
+          // can never be drafted.
+          if (isAddressBlocked(`${p.local}@${domain}`, addressRules)) continue;
           try { charge(PROVIDER, 1, budget); }
           catch (err) {
             if (err.name === 'BudgetExceededError') { stats.budgetExceeded = true; break; }
@@ -405,7 +444,14 @@ export function deriveDomain(company) {
       // which is where mail and Hunter's index actually live.
       const host = normalizeCompanyDomain(u.hostname);
       if (host) return host;
-    } catch { /* fall through */ }
+    } catch (err) {
+      // A junk website value is expected (ERR_INVALID_URL) and simply falls
+      // through to the job URL. Anything else is a real bug - this catch once
+      // hid a ReferenceError from a missing import and reported it as "no domain".
+      if (err?.code !== 'ERR_INVALID_URL') {
+        logger.warn({ err: err.message, companyId: company.id }, 'deriveDomain: unexpected error reading website');
+      }
+    }
   }
   // Try to derive from a job URL for this company.
   const row = getDb().prepare(`
@@ -419,7 +465,11 @@ export function deriveDomain(company) {
       // company's real domain. Skip those — see util/ats-domains.js.
       if (isAtsHost(u.hostname)) return null;
       return normalizeCompanyDomain(u.hostname);
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err?.code !== 'ERR_INVALID_URL') {
+        logger.warn({ err: err.message, companyId: company.id }, 'deriveDomain: unexpected error reading job URL');
+      }
+    }
   }
   return null;
 }

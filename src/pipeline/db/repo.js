@@ -456,6 +456,93 @@ export function companyHasOpenDraft(companyId) {
   return Boolean(row);
 }
 
+/* ── rejection learning ──────────────────────────────────── */
+
+export function setDraftRedraftBlocked(draftId, blocked = true) {
+  getDb().prepare('UPDATE draft SET redraft_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, draftId);
+}
+
+/** True when the applicant rejected a draft for exactly this contact and job. */
+export function redraftBlockedFor(contactId, jobId) {
+  return Boolean(getDb().prepare(`
+    SELECT 1 FROM draft
+    WHERE contact_id = ? AND (job_id = ? OR (? IS NULL AND job_id IS NULL))
+      AND status = 'rejected' AND redraft_blocked = 1
+    LIMIT 1
+  `).get(contactId, jobId, jobId));
+}
+
+export function addRejectionRule({ kind, value, reason = null, sourceDraftId = null }) {
+  const info = getDb().prepare(`
+    INSERT OR IGNORE INTO rejection_rule (kind, value, reason, source_draft_id)
+    VALUES (?, ?, ?, ?)
+  `).run(kind, String(value), reason, sourceDraftId);
+  if (info.changes > 0) {
+    recordEvent({
+      entity: 'rejection_rule', entityId: info.lastInsertRowid, event: 'learned',
+      detail: { kind, value, reason, sourceDraftId },
+    });
+  }
+  return { created: info.changes > 0 };
+}
+
+export function listRejectionRules() {
+  return getDb().prepare('SELECT * FROM rejection_rule ORDER BY id ASC').all();
+}
+
+export function rejectionRuleById(id) {
+  return getDb().prepare('SELECT * FROM rejection_rule WHERE id = ?').get(id);
+}
+
+export function deleteRejectionRule(id) {
+  const info = getDb().prepare('DELETE FROM rejection_rule WHERE id = ?').run(id);
+  if (info.changes > 0) {
+    recordEvent({ entity: 'rejection_rule', entityId: id, event: 'forgotten', detail: {} });
+  }
+  return info.changes > 0;
+}
+
+/** Address rules in the shape draft/rejection-rules.js isAddressBlocked() takes. */
+export function addressBlockRules() {
+  const rows = getDb().prepare(
+    `SELECT kind, value FROM rejection_rule WHERE kind IN ('local_part','all_role_aliases')`
+  ).all();
+  return {
+    families: new Set(rows.filter(r => r.kind === 'local_part').map(r => r.value)),
+    allRoleAliases: rows.some(r => r.kind === 'all_role_aliases'),
+  };
+}
+
+export function usableContacts() {
+  return getDb().prepare(`SELECT * FROM contact WHERE email_status != 'invalid'`).all();
+}
+
+export function openDraftsForContact(contactId) {
+  return getDb().prepare(
+    `SELECT * FROM draft WHERE contact_id = ? AND status IN ('pending_review','approved')`
+  ).all(contactId);
+}
+
+export function usableContactCountForCompany(companyId) {
+  return getDb().prepare(
+    `SELECT COUNT(*) AS n FROM contact WHERE company_id = ? AND email_status != 'invalid'`
+  ).get(companyId).n;
+}
+
+export function markEnrichAttempt(companyId) {
+  getDb().prepare(
+    `UPDATE company SET last_enrich_attempt_at = datetime('now') WHERE id = ?`
+  ).run(companyId);
+}
+
+export function enrichAttemptedWithinDays(companyId, days) {
+  return Boolean(getDb().prepare(`
+    SELECT 1 FROM company
+    WHERE id = ? AND last_enrich_attempt_at IS NOT NULL
+      AND last_enrich_attempt_at > datetime('now', ?)
+  `).get(companyId, `-${days} days`));
+}
+
 export function existingDraftFor(contactId, jobId) {
   return getDb().prepare(`
     SELECT * FROM draft

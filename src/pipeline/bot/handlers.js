@@ -7,22 +7,21 @@ import {
   updateDraftStatus, createDraft,
   companyBySlug, setCompanySizeManual, setContactEmailStatus,
   suppressCompany, unsuppressCompany, isCompanySuppressed, listSuppressedCompanies,
-  setDraftDeliverabilityOverride,
+  setDraftDeliverabilityOverride, setJobQualifyResult,
+  setDraftRedraftBlocked, addRejectionRule, listRejectionRules, rejectionRuleById,
+  deleteRejectionRule, addressBlockRules, usableContacts, openDraftsForContact,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
 import { sendMessage } from '../send/gmail.js';
-import { runSend } from '../send/index.js';
 import { pauseState, clearPause, bounceRate } from '../send/reply-detect.js';
 import { isAtsEmail } from '../util/ats-domains.js';
-import { isValidEmail } from '../util/email-domain.js';
+import { isValidEmail, isCareersSubdomainEmail } from '../util/email-domain.js';
+import { classifyRejectReason, isAddressBlocked, describeFamily } from '../draft/rejection-rules.js';
 import { runReport } from '../report/index.js';
+import { runPipeline, runSendPass } from '../run.js';
+import { summarizeIssues, recentIssues } from '../util/issues.js';
 import { usage } from '../enrich/cost-guard.js';
-import { runDiscover } from '../discover/index.js';
-import { runIngest } from '../ingest/index.js';
-import { runQualify } from '../qualify/index.js';
-import { runEnrich } from '../enrich/index.js';
-import { runDraft } from '../draft/index.js';
 import { loadProfile } from '../draft/profile.js';
 import { generateDraft } from '../draft/llm.js';
 import { verifyHookEvidence } from '../draft/hook-verify.js';
@@ -131,27 +130,183 @@ export function handleApprove(id) {
   return `Draft ${d.id} approved. Use /send to fire it now, or leave it for the next auto-send cron.${badge}`;
 }
 
+/**
+ * Reject a draft and make the decision stick.
+ *
+ * Rejecting used to have no durable effect unless the reason matched a narrow
+ * company-suppression regex. "has founders in the email" matched nothing, so
+ * the next /run regenerated the same draft to the same address for the same
+ * role (#124 came back as #126, #125 as #127).
+ *
+ * Now, always: this exact contact + role is never auto-drafted again. Then the
+ * reason is classified (draft/rejection-rules.js) and turned into a lasting
+ * rule - suppress the company, block the role, or block the address pattern -
+ * and every effect is spelled out in the reply so a misread is visible at once
+ * and /forget can undo it.
+ */
 export function handleReject(id, reason) {
   const d = draftById(Number(id));
   if (!d) return `Draft ${id} not found.`;
-  updateDraftStatus(d.id, 'rejected', { reason: reason || 'via telegram' });
+  if (d.status === 'sent') return `Draft ${id} was already sent - there is nothing to reject.`;
 
-  // Auto-suppress if the reason indicates the company itself is wrong
-  // (too big/small, wrong industry, US-only, onsite). Prevents the same
-  // company from re-appearing in the next /run cycle via any aggregator.
-  const shouldSuppress = /\b(too\s*big|too\s*large|too\s*small|wrong\s*(size|industry|role)|us\s*only|us\s*based|onsite|on-site|us\s*timezone|us\s*residents?|not\s*remote)\b/i
-    .test(reason || '');
-  let extra = '';
-  if (shouldSuppress) {
-    const contact = contactById(d.contact_id);
-    const companyId = contact?.company_id;
-    if (companyId) {
-      suppressCompany(companyId, `auto-suppressed on /reject: ${reason}`);
-      const co = companyById(companyId);
-      extra = `\n<b>Auto-suppressed ${escapeHtml(co?.name || '?')}</b> — future /run cycles will skip it.`;
+  const why = String(reason || '').trim();
+  updateDraftStatus(d.id, 'rejected', { reason: why || 'via telegram' });
+  setDraftRedraftBlocked(d.id, true);
+
+  const contact = contactById(d.contact_id);
+  const company = contact ? companyById(contact.company_id) : null;
+  const job = d.job_id ? jobById(d.job_id) : null;
+  const verdict = classifyRejectReason(why, { email: contact?.email });
+
+  const out = [`Draft ${d.id} rejected: ${escapeHtml(why || 'no reason given')}`];
+
+  if (verdict.company && company) {
+    if (!isCompanySuppressed(company.id)) suppressCompany(company.id, `auto-suppressed on /reject: ${why}`);
+    addRejectionRule({ kind: 'company', value: company.id, reason: why, sourceDraftId: d.id });
+    const others = rejectOtherOpenDrafts(
+      od => contactById(od.contact_id)?.company_id === company.id,
+      `company suppressed on /reject #${d.id}`, d.id);
+    out.push(`<b>Auto-suppressed ${escapeHtml(company.name)}</b> — future /run cycles will skip it.`);
+    if (others.length) out.push(`  Also rejected its other open draft(s): ${others.map(i => `#${i}`).join(', ')}`);
+  }
+
+  if (verdict.job && job) {
+    setJobQualifyResult(job.id, {
+      status: 'disqualified', score: 0, disqualifyReason: `rejected: ${why}`.slice(0, 200),
+    });
+    addRejectionRule({ kind: 'job', value: job.id, reason: why, sourceDraftId: d.id });
+    const others = rejectOtherOpenDrafts(od => od.job_id === job.id, `role blocked on /reject #${d.id}`, d.id);
+    out.push(`<b>Role blocked:</b> ${escapeHtml(job.title || '?')} at ${escapeHtml(company?.name || '?')} will not be drafted again.`);
+    if (others.length) out.push(`  Also rejected other open draft(s) for it: ${others.map(i => `#${i}`).join(', ')}`);
+  }
+
+  if (verdict.aliasFamilies.length || verdict.allRoleAliases) {
+    for (const fam of verdict.aliasFamilies) {
+      addRejectionRule({ kind: 'local_part', value: fam, reason: why, sourceDraftId: d.id });
+    }
+    if (verdict.allRoleAliases) {
+      addRejectionRule({ kind: 'all_role_aliases', value: '*', reason: why, sourceDraftId: d.id });
+    }
+    const applied = applyAddressRules(d.id);
+    const what = verdict.allRoleAliases
+      ? 'any shared inbox (founders@, hello@, team@, careers@ ...) - named people only'
+      : `${verdict.aliasFamilies.map(describeFamily).join(', ')} addresses`;
+    out.push(`<b>Learned:</b> never use ${escapeHtml(what)}.`);
+    out.push(`  ${applied.contacts} matching contact(s) invalidated across all companies`);
+    if (applied.drafts.length) {
+      out.push(`  ${applied.drafts.length} other open draft(s) rejected: ${applied.drafts.map(i => `#${i}`).join(', ')}`);
+    }
+    out.push('  enrichment stops probing for them and drafting skips them');
+  } else if (verdict.contact && contact) {
+    setContactEmailStatus(contact.id, 'invalid');
+    out.push(`<b>Contact dropped:</b> ${escapeHtml(contact.email)} will not be used again.`);
+  }
+
+  if (verdict.wording) {
+    out.push(`Read as a wording issue, so nothing beyond this draft changed. /replace ${d.id} gets a rewrite for the same person and role.`);
+  }
+  if (!verdict.recognized) {
+    out.push('I could not tell what was wrong, so only this exact contact + role is blocked. ' +
+      'If the problem is the company, the role or the address, say so next time - e.g. "too big", "wrong role", "generic email".');
+  }
+
+  out.push('', 'This exact contact + role will not be drafted again.');
+  if (company && verdict.contact && !verdict.company && !verdict.job) {
+    out.push(`${escapeHtml(company.name)} can still be drafted to a different, allowed contact if one is found.`);
+  }
+  if (verdict.aliasFamilies.length && !verdict.allRoleAliases) {
+    out.push('Other shared inboxes (hello@, team@, careers@) are still allowed - reject with "generic email" to block all of them.');
+  }
+  out.push('/rules lists what has been learned; /forget &lt;n&gt; undoes one.');
+  return out.join('\n');
+}
+
+function rejectOtherOpenDrafts(predicate, reason, exceptId) {
+  const ids = [];
+  for (const od of draftsByStatus('pending_review').concat(draftsByStatus('approved'))) {
+    if (od.id === exceptId || !predicate(od)) continue;
+    updateDraftStatus(od.id, 'rejected', { reason: `auto: ${reason}` });
+    ids.push(od.id);
+  }
+  return ids;
+}
+
+// A new rule must reach contacts created before it, or /list keeps showing the
+// very addresses the applicant just rejected.
+function applyAddressRules(sourceDraftId = null) {
+  const rules = addressBlockRules();
+  let contacts = 0;
+  const drafts = [];
+  for (const c of usableContacts()) {
+    if (!isAddressBlocked(c.email, rules)) continue;
+    setContactEmailStatus(c.id, 'invalid');
+    contacts++;
+    for (const od of openDraftsForContact(c.id)) {
+      if (od.id === sourceDraftId) continue;
+      updateDraftStatus(od.id, 'rejected', { reason: `auto: ${c.email} blocked by a learned rule` });
+      drafts.push(od.id);
     }
   }
-  return `Draft ${d.id} rejected: ${escapeHtml(reason || 'no reason given')}${extra}`;
+  return { contacts, drafts };
+}
+
+// Contacts a draft may actually be addressed to: not invalid, not blocked by a
+// learned rule, not on a careers subdomain.
+function sendableContactsFor(companyId) {
+  const rules = addressBlockRules();
+  return contactsByCompany(companyId).filter(c =>
+    c.email_status !== 'invalid'
+    && !isAddressBlocked(c.email, rules)
+    && !isCareersSubdomainEmail(c.email));
+}
+
+function describeRule(r) {
+  switch (r.kind) {
+    case 'local_part':
+      return `never use ${describeFamily(r.value)} addresses`;
+    case 'all_role_aliases':
+      return 'never use a shared inbox (founders@, hello@, careers@ ...) - named people only';
+    case 'company':
+      return `company suppressed: ${companyById(Number(r.value))?.name || `#${r.value}`}`;
+    case 'job': {
+      const j = jobById(Number(r.value));
+      return `role blocked: ${j?.title || `job #${r.value}`}${j ? ` at ${companyById(j.company_id)?.name || '?'}` : ''}`;
+    }
+    default:
+      return `${r.kind}: ${r.value}`;
+  }
+}
+
+/* ── /rules + /forget: what rejections have taught the pipeline ── */
+
+export function handleRules() {
+  const rules = listRejectionRules();
+  if (rules.length === 0) return 'Nothing learned from rejections yet.';
+  const lines = ['<b>Learned from your rejections</b>', ''];
+  for (const r of rules) {
+    lines.push(`${r.id}. ${escapeHtml(describeRule(r))}`);
+    if (r.reason) lines.push(`   <i>"${escapeHtml(r.reason.slice(0, 80))}"</i>`);
+  }
+  lines.push('', 'Use /forget &lt;n&gt; to undo one.');
+  return lines.join('\n');
+}
+
+export function handleForget(id) {
+  const rule = rejectionRuleById(Number(id));
+  if (!rule) return `No rule #${escapeHtml(String(id || ''))}. Use /rules to see them.`;
+  const desc = describeRule(rule);
+  deleteRejectionRule(rule.id);
+  let note;
+  if (rule.kind === 'company') {
+    unsuppressCompany(Number(rule.value));
+    note = 'The company is unsuppressed and can qualify again on the next /run.';
+  } else if (rule.kind === 'job') {
+    setJobQualifyResult(Number(rule.value), { status: 'ingested', score: 0, disqualifyReason: null });
+    note = 'The role will be re-evaluated on the next /run.';
+  } else {
+    note = 'Future enrichment and drafts may use those addresses again. Contacts already invalidated stay invalid.';
+  }
+  return `Forgot rule #${rule.id} (${escapeHtml(desc)}). ${note}`;
 }
 
 /* ── /suppress + /unblock + /suppressed: company blocklist ── */
@@ -223,24 +378,37 @@ export function handleMarkReplied(id) {
 
 /* ── send + status ────────────────────────────────────────── */
 
+function busyMessage(what, info) {
+  return `A ${what} is already in progress (started by ${escapeHtml(info?.holder || '?')}, ` +
+    `${info?.sinceSec ?? '?'}s ago). Not starting a second one - overlapping runs draft the same ` +
+    'company twice and overlapping send passes can deliver the same email twice.';
+}
+
 export async function handleSend() {
-  const config = loadConfig();
-  try {
-    const stats = await runSend({ config });
-    return [
-      '<b>Send pass</b>',
-      `initial: ${stats.initialSent}`,
-      `followup1: ${stats.followup1Sent}`,
-      `followup2: ${stats.followup2Sent}`,
-      `blocked (approval/suppressed/cap/unverified/ats-domain): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}/${stats.blockedUnverified}/${stats.blockedAtsDomain}`,
-      stats.paused ? pausedExplanation() : '',
-      stats.blockedAtsDomain > 0
-        ? `<i>${stats.blockedAtsDomain} draft(s) blocked: recipient address is on an ATS/job-board domain (e.g. founders@api.smartrecruiters.com) and would bounce. Reject those drafts and re-run /run to get a real contact.</i>`
-        : '',
-    ].filter(Boolean).join('\n');
-  } catch (err) {
-    return `Send failed: ${escapeHtml(err.message)}`;
+  const out = await runSendPass({ origin: 'telegram:/send' });
+  if (out.busy) return busyMessage('send pass', out.info);
+  const issues = summarizeIssues(out.run?.issues);
+  if (out.error || out.stats?.failed) {
+    return [`<b>Send failed:</b> ${escapeHtml(out.error?.message || out.stats?.error || 'unknown error')}`,
+      '', ...issues].join('\n');
   }
+  const stats = out.stats;
+  const config = loadConfig();
+  const lines = ['<b>Send pass</b>', `initial: ${stats.initialSent}`];
+  // Follow-ups are disabled (send.followups_enabled). Printing "followup1: 0"
+  // every time made it look like they were still part of the pipeline.
+  if (config.send?.followups_enabled) {
+    lines.push(`followup1: ${stats.followup1Sent}`, `followup2: ${stats.followup2Sent}`);
+  }
+  lines.push(
+    `blocked (approval/suppressed/cap/unverified/ats-domain/invalid-email): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}/${stats.blockedUnverified}/${stats.blockedAtsDomain}/${stats.blockedInvalidEmail || 0}`,
+  );
+  if (stats.paused) lines.push(pausedExplanation());
+  if (stats.atsDraftsQuarantined > 0) {
+    lines.push(`<i>${stats.atsDraftsQuarantined} draft(s) had an address that can never receive mail; they were rejected and the contact marked invalid so the next /run looks for a real one.</i>`);
+  }
+  if (issues.length) lines.push('', ...issues);
+  return lines.join('\n');
 }
 
 /* ── /cleanup: purge unsendable and superseded drafts ─────── */
@@ -268,6 +436,7 @@ export function handleCleanup() {
   const current = config.llm?.prompt_version;
   const open = draftsByStatus('pending_review').concat(draftsByStatus('approved'));
   if (open.length === 0) return 'Nothing to clean - no open drafts.';
+  const addressRules = addressBlockRules();
 
   const killed = { unsendable: [], superseded: [], duplicate: [] };
   const survivors = [];
@@ -277,7 +446,8 @@ export function handleCleanup() {
     const email = contact?.email || '';
     const label = `#${d.id} ${(companyById(contact?.company_id)?.name || '?').slice(0, 22)}`;
 
-    if (!contact || !isValidEmail(email) || isAtsEmail(email)) {
+    if (!contact || !isValidEmail(email) || isAtsEmail(email)
+        || isCareersSubdomainEmail(email) || isAddressBlocked(email, addressRules)) {
       updateDraftStatus(d.id, 'rejected', { reason: `cleanup: unsendable recipient ${email || '(none)'}` });
       if (contact) setContactEmailStatus(contact.id, 'invalid');
       killed.unsendable.push(`${label} -> ${email || '(no contact)'}`);
@@ -569,17 +739,34 @@ export async function handleStatus() {
   const config = loadConfig();
   const s = await runReport({ config });
   const t = s.totals;
-  return [
+  const lines = [
     '<b>Pipeline funnel</b>',
     `companies: ${t.companies_total} (${t.companies_qualified} qualified)`,
     `jobs: ${t.jobs_total} (${t.jobs_qualified} qualified)`,
     `contacts: ${t.contacts_total} (${t.contacts_verified} verified)`,
     `drafts: pending=${t.drafts_pending} approved=${t.drafts_approved} sent=${t.drafts_sent}`,
-    `messages: out=${t.messages_out_initial} followups=${t.messages_out_followup} replies=${t.messages_replied} bounced=${t.messages_bounced}`,
+    `messages: out=${t.messages_out_initial} replies=${t.messages_replied} bounced=${t.messages_bounced}`,
+  ];
+  if (!config.send?.followups_enabled && t.messages_out_followup > 0) {
+    lines.push(`follow-ups: disabled (${t.messages_out_followup} were sent before they were turned off)`);
+  }
+  lines.push(
     `discover -> qualified: ${s.funnel.discovered_to_qualified_pct}%`,
     `sent -> reply: ${s.funnel.sent_to_reply_pct}%`,
     `bounce rate: ${s.funnel.bounce_rate_pct}%`,
-  ].join('\n');
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Every warning and error the pipeline recorded, including from cron runs
+ * nobody was watching. /issues 72 widens the window to 72 hours.
+ */
+export function handleIssues(arg) {
+  const hours = Math.min(Math.max(Number(arg) || 24, 1), 24 * 14);
+  const rows = recentIssues({ hours });
+  if (rows.length === 0) return `No warnings or errors recorded in the last ${hours}h.`;
+  return summarizeIssues(rows, { limit: 30, title: `Pipeline issues, last ${hours}h` }).join('\n');
 }
 
 export function handleHelp() {
@@ -590,10 +777,10 @@ export function handleHelp() {
     '/show &lt;id&gt; — full draft (subject + body + hook)',
     '/preview &lt;id&gt; — send preview to your own Gmail',
     '/approve &lt;id&gt; — approve a pending draft',
-    '/reject &lt;id&gt; [reason] — reject a pending draft',
+    '/reject &lt;id&gt; &lt;reason&gt; — reject; the reason becomes a lasting rule',
     '/rejectall &lt;reason&gt; — bulk-reject every pending + approved draft',
     '/replace &lt;id&gt; [reason] — reject + regenerate a fresh draft',
-    '/replied &lt;id&gt; — manually cancel remaining follow-ups',
+    '/replied &lt;id&gt; — mark a sent email as replied',
     '/send — send all approved drafts now',
     '/run — fire the full pipeline (discover → ingest → qualify → enrich → draft)',
     '/draft &lt;company-slug&gt; — force-draft against a company by slug',
@@ -604,8 +791,11 @@ export function handleHelp() {
     '/suppressed — list all suppressed companies',
     '/unpause — lift the bounce-alarm send pause',
     '/cleanup — reject unsendable, superseded and duplicate drafts',
+    '/rules — what your rejections have taught the pipeline',
+    '/forget &lt;n&gt; — undo a learned rule',
     '/status — pipeline funnel snapshot',
     '/diag — deep pipeline diagnostic (pool composition, budgets)',
+    '/issues [hours] — every warning and error the pipeline hit (default 24h)',
     '/whoami — show your Telegram chat id (for env config)',
   ].join('\n');
 }
@@ -613,69 +803,44 @@ export function handleHelp() {
 /* ── /run: fire full pipeline ─────────────────────────────── */
 
 export async function handleRun() {
-  const config = loadConfig();
-  const stats = { discover: null, ingest: null, qualify: null, enrich: null, draft: null };
-  try {
-    stats.discover = await runDiscover({ config });
-    stats.ingest   = await runIngest({ config });
-    stats.qualify  = await runQualify({ config });
-    stats.enrich   = await runEnrich({ config });
-    stats.draft    = await runDraft({ config });
+  const out = await runPipeline({ origin: 'telegram:/run' });
+  if (out.busy) return busyMessage('pipeline run', out.info);
 
-    // If nothing came out of draft, take another swing: re-enrich all
-    // qualified companies (including ones that already had contacts skipped
-    // for lack of a qualified job earlier), then re-draft. Cheap because
-    // enrich's per-company guard prevents duplicate Hunter calls when a
-    // contact already exists.
-    if ((stats.draft?.draftsCreated || 0) === 0) {
-      logger.warn('run: 0 drafts produced, retrying enrich + draft once more');
-      const enrich2 = await runEnrich({ config });
-      const draft2  = await runDraft({ config });
-      stats.enrich = mergeStats(stats.enrich, enrich2);
-      stats.draft  = mergeStats(stats.draft, draft2);
-    }
-  } catch (err) {
-    logger.error({ err: err.message }, 'run pipeline failed');
-    return `Pipeline run failed: ${escapeHtml(err.message)}`;
+  const stats = out.stats || {};
+  const lines = [out.error
+    ? `<b>Pipeline run aborted:</b> ${escapeHtml(out.error.message)}`
+    : '<b>Pipeline run complete</b>'];
+  for (const stage of ['discover', 'ingest', 'qualify', 'enrich', 'draft']) {
+    const st = stats[stage];
+    const pad = ' '.repeat(Math.max(1, 9 - stage.length));
+    lines.push(st?.failed
+      ? `${stage}:${pad}<b>FAILED</b> - ${escapeHtml(st.error)}`
+      : `${stage}:${pad}${escapeHtml(JSON.stringify(st || {}))}`);
   }
-  const drafts = stats.draft?.draftsCreated || 0;
-  const lines = [
-    '<b>Pipeline run complete</b>',
-    `discover: ${JSON.stringify(stats.discover || {})}`,
-    `ingest:   ${JSON.stringify(stats.ingest || {})}`,
-    `qualify:  ${JSON.stringify(stats.qualify || {})}`,
-    `enrich:   ${JSON.stringify(stats.enrich || {})}`,
-    `draft:    ${JSON.stringify(stats.draft || {})}`,
-  ];
-  if (drafts === 0) {
-    const d = stats.draft || {};
+
+  const d = stats.draft || {};
+  const drafts = d.draftsCreated || 0;
+  if (!d.failed && drafts === 0) {
     const reasons = [];
-    if (d.errors > 0)           reasons.push(`${d.errors} draft error(s): ${escapeHtml(d.firstError || 'see Railway logs')}`);
-    if (d.skippedLlmSkip > 0)   reasons.push(`${d.skippedLlmSkip} skipped by LLM (no hook/bridge found)`);
-    if (d.skippedNoContact > 0) reasons.push(`${d.skippedNoContact} companies had no usable contact`);
-    if (d.skippedNoJob > 0)     reasons.push(`${d.skippedNoJob} companies had no qualified job`);
-    if (d.skippedBadTitle > 0)  reasons.push(`${d.skippedBadTitle} companies all failed defensive Q1`);
-    if (d.skippedTooBig > 0)    reasons.push(`${d.skippedTooBig} companies too large (>500)`);
-    if (d.budgetExceeded)       reasons.push('Anthropic monthly budget exhausted');
-    if (d.companiesConsidered === 0) reasons.push('no qualified companies in DB yet — run discover/qualify first');
+    if (d.errors > 0)                reasons.push(`${d.errors} draft error(s): ${escapeHtml(d.firstError || 'see /issues')}`);
+    if (d.skippedLlmSkip > 0)        reasons.push(`${d.skippedLlmSkip} skipped by LLM (no hook/bridge found)`);
+    if (d.skippedNoContact > 0)      reasons.push(`${d.skippedNoContact} companies had no usable contact`);
+    if (d.skippedRejectedBefore > 0) reasons.push(`${d.skippedRejectedBefore} contact + role pair(s) you already rejected`);
+    if (d.skippedCompanyHasDraft > 0) reasons.push(`${d.skippedCompanyHasDraft} companies already have an open draft`);
+    if (d.skippedNoJob > 0)          reasons.push(`${d.skippedNoJob} companies had no qualified job`);
+    if (d.skippedBadTitle > 0)       reasons.push(`${d.skippedBadTitle} companies all failed defensive Q1`);
+    if (d.skippedTooBig > 0)         reasons.push(`${d.skippedTooBig} companies too large (>500)`);
+    if (d.budgetExceeded)            reasons.push('Anthropic monthly budget exhausted');
+    if (d.companiesConsidered === 0) reasons.push('no qualified companies in DB yet');
     const why = reasons.length > 0 ? reasons.join('; ') : 'all companies already have live drafts or were skipped';
     lines.push('', `<b>No drafts produced.</b> ${why}. Use /diag for pool details.`);
-  } else {
+  } else if (drafts > 0) {
     lines.push('', `Use /list to review the ${drafts} new draft(s).`);
   }
-  return lines.join('\n');
-}
 
-function mergeStats(a, b) {
-  if (!a) return b;
-  if (!b) return a;
-  const out = { ...a };
-  for (const k of Object.keys(b)) {
-    if (typeof b[k] === 'number') out[k] = (out[k] || 0) + b[k];
-    else if (typeof b[k] === 'boolean') out[k] = out[k] || b[k];
-    else out[k] = b[k];
-  }
-  return out;
+  const issues = summarizeIssues(out.run?.issues);
+  lines.push('', ...(issues.length ? issues : ['No warnings or errors this run.']));
+  return lines.join('\n');
 }
 
 /* ── /replace: reject + regenerate for the same contact+job ─ */
@@ -690,9 +855,15 @@ export async function handleReplace(id, reason) {
   const job = d.job_id ? jobById(d.job_id) : null;
   if (!contact || !job) return `Draft ${id} missing contact or job — cannot regenerate.`;
   const company = companyById(contact.company_id);
+  if (contact.email_status === 'invalid' || isAddressBlocked(contact.email, addressBlockRules())) {
+    return `Draft ${id} is addressed to ${escapeHtml(contact.email)}, which is invalid or blocked by a rule. ` +
+      'Rewriting it will not help - it needs a different contact. /rules shows what is blocked.';
+  }
 
-  // Reject the current draft first so /list stays clean.
-  updateDraftStatus(draftId, 'rejected', { reason: reason || 'replace via telegram' });
+  // Reject the current draft first so /list stays clean. The "replace:" prefix
+  // marks this as a rewrite, not a decision against the contact or role, so it
+  // does not block future drafts (migration 009).
+  updateDraftStatus(draftId, 'rejected', { reason: `replace: ${reason || 'via telegram'}` });
 
   const config = loadConfig();
   let profile;
@@ -759,19 +930,21 @@ export async function handleDraftForSlug(slug) {
 
   // Self-heal contacts: if none, promote status to qualified so enrich
   // will process it, then run a scoped enrich for this one company.
-  let contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
+  let contacts = sendableContactsFor(company.id);
   let contactNote = '';
   if (contacts.length === 0) {
     if (company.status !== 'qualified') {
       try {
         const { setCompanyStatus } = await import('../db/repo.js');
         setCompanyStatus(company.id, 'qualified', { reason: 'forced by /draft <slug>' });
-      } catch { /* non-fatal */ }
+      } catch (err) {
+        logger.warn({ err: err.message, companyId: company.id }, '/draft: could not promote company to qualified');
+      }
     }
     try {
       const { runEnrich } = await import('../enrich/index.js');
       const stats = await runEnrich({ config, maxCompanies: 999, onlyForCompanyId: company.id });
-      contacts = contactsByCompany(company.id).filter(c => c.email_status !== 'invalid');
+      contacts = sendableContactsFor(company.id);
       contactNote = `(auto-enriched: ${stats.contactsCreated} contact(s) created)`;
     } catch (err) {
       return `Auto-enrich failed for ${escapeHtml(company.name)}: ${escapeHtml(err.message)}`;

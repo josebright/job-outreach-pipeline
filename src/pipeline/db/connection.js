@@ -27,6 +27,12 @@ export function getDb(dbPath = DEFAULT_DB_PATH) {
   return db;
 }
 
+// Lets the issue log record into the database without being the thing that
+// opens it - a warning logged before startup must not create data/pipeline.db.
+export function isDbOpen() {
+  return db !== null;
+}
+
 export function closeDb() {
   if (db) {
     db.close();

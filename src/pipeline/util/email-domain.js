@@ -79,3 +79,18 @@ export function isValidEmail(email) {
   if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) return false;
   return isPlausibleDomain(s.slice(at + 1));
 }
+
+/**
+ * True when the address sits on a careers/ATS subdomain of the company
+ * (founders@jobs.dropbox.com). It is syntactically valid and not on an ATS
+ * vendor's host, so neither isValidEmail nor isAtsEmail catches it - but nobody
+ * reads mail there. Pre-fix enrichment created these and they are still in the
+ * database, attached to live drafts.
+ */
+export function isCareersSubdomainEmail(email) {
+  if (!isValidEmail(email)) return false;
+  const s = String(email).trim().toLowerCase();
+  const host = s.slice(s.lastIndexOf('@') + 1).replace(/^www\./, '');
+  const normalized = normalizeCompanyDomain(host);
+  return Boolean(normalized) && normalized !== host;
+}

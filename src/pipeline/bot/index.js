@@ -11,6 +11,7 @@ import {
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
   handleDiag, handleSetSize,
   handleSuppress, handleUnblock, handleSuppressed, handleUnpause, handleCleanup,
+  handleRules, handleForget, handleIssues,
 } from './handlers.js';
 
 let running = null;
@@ -66,30 +67,21 @@ export function startBot() {
   bot.command('status',  guard('status',  () => handleStatus()));
   bot.command('diag',    guard('diag',    () => handleDiag()));
 
-  // Async commands (preview + send + run) can take a few seconds, so they
-  // acknowledge first and return the real reply when they finish.
-  bot.command('preview', guard('preview', async (ctx) => {
-    await ctx.reply('Sending preview…');
-    return handlePreview(argOf(ctx));
-  }));
-  bot.command('send', guard('send', async (ctx) => {
-    await ctx.reply('Firing send loop…');
-    return handleSend();
-  }));
-  bot.command('run', guard('run', async (ctx) => {
-    await ctx.reply('Firing full pipeline… this may take a few minutes.');
-    return handleRun();
-  }));
-  bot.command('replace', guard('replace', async (ctx) => {
-    const [id, ...rest] = argsOf(ctx);
-    await ctx.reply(`Regenerating draft #${id}…`);
-    return handleReplace(id, rest.join(' '));
-  }));
-  bot.command('draft', guard('draft', async (ctx) => {
-    const slug = argOf(ctx);
-    await ctx.reply(`Drafting for ${slug || '(no slug)'} …`);
-    return handleDraftForSlug(slug);
-  }));
+  // Long-running commands run in the background - see detached().
+  bot.command('preview', detached('preview', 'Sending preview…',
+    (ctx) => handlePreview(argOf(ctx))));
+  bot.command('send', detached('send', 'Firing send loop… I will post the result here.',
+    () => handleSend()));
+  bot.command('run', detached('run',
+    'Firing full pipeline… this takes a few minutes. The bot stays responsive; I will post the result here when it finishes.',
+    () => handleRun()));
+  bot.command('replace', detached('replace', (ctx) => `Regenerating draft #${argsOf(ctx)[0]}…`,
+    (ctx) => {
+      const [id, ...rest] = argsOf(ctx);
+      return handleReplace(id, rest.join(' '));
+    }));
+  bot.command('draft', detached('draft', (ctx) => `Drafting for ${argOf(ctx) || '(no slug)'} …`,
+    (ctx) => handleDraftForSlug(argOf(ctx))));
 
   bot.command('setsize', guard('setsize', (ctx) => {
     const [slug, band] = argsOf(ctx);
@@ -103,11 +95,13 @@ export function startBot() {
   bot.command('suppressed', guard('suppressed', () => handleSuppressed()));
   bot.command('unpause',    guard('unpause',    () => handleUnpause()));
   bot.command('cleanup',    guard('cleanup',    () => handleCleanup()));
+  bot.command('rules',      guard('rules',      () => handleRules()));
+  bot.command('forget',     guard('forget',     (ctx) => handleForget(argOf(ctx))));
+  bot.command('issues',     guard('issues',     (ctx) => handleIssues(argOf(ctx))));
 
-  bot.command('addcompany', guard('addcompany', async (ctx) => {
+  bot.command('addcompany', detached('addcompany', 'Looking up…', (ctx) => {
     const text = ctx.message?.text || '';
     const input = text.replace(/^\/addcompany(@\S+)?\s*/i, '').trim();
-    await ctx.reply('Looking up…');
     return handleAddCompany(input);
   }));
 
@@ -116,7 +110,7 @@ export function startBot() {
   // leaving the user staring at silence.
   bot.catch((err, ctx) => {
     logger.error({ err: err.message, stack: err.stack, updateType: ctx.updateType }, 'telegraf handler error');
-    ctx.reply(`Something broke handling that: ${err.message}`).catch(() => {});
+    ctx.reply(`Something broke handling that: ${err.message}`).catch(e => logger.warn({ err: e.message }, 'telegram reply failed'));
   });
 
   bot.launch({ dropPendingUpdates: true }).catch(err => {
@@ -194,8 +188,31 @@ function guard(name, fn) {
       if (out !== undefined) await safeReply(ctx, out);
     } catch (err) {
       logger.error({ err: err.message, stack: err.stack, command: name }, 'command failed');
-      await ctx.reply(`/${name} failed: ${err.message}`).catch(() => {});
+      await ctx.reply(`/${name} failed: ${err.message}`).catch(e => logger.warn({ err: e.message }, 'telegram reply failed'));
     }
+  };
+}
+
+// Telegraf abandons any update handler after 90 seconds (handlerTimeout) with
+// "Promise timed out after 90000 milliseconds". /run takes several minutes, so
+// its handler always timed out even though the pipeline kept going and
+// finished - which is why "Pipeline run complete" arrived AFTER the error.
+// Polling also waits on the handler, so the bot stopped answering every other
+// command for those 90 seconds.
+//
+// Long commands now acknowledge at once and run in the background; the result,
+// or the real error, is posted to the chat when the work finishes.
+function detached(name, ack, fn) {
+  return async (ctx) => {
+    const ackText = typeof ack === 'function' ? ack(ctx) : ack;
+    await ctx.reply(ackText).catch(e => logger.warn({ err: e.message }, 'telegram reply failed'));
+    Promise.resolve()
+      .then(() => fn(ctx))
+      .then(out => (out === undefined ? undefined : safeReply(ctx, out)))
+      .catch(async (err) => {
+        logger.error({ err: err.message, stack: err.stack, command: name }, 'background command failed');
+        await ctx.reply(`/${name} failed: ${err.message}`).catch(e => logger.warn({ err: e.message }, 'telegram reply failed'));
+      });
   };
 }
 

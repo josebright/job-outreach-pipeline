@@ -16,13 +16,10 @@ import cron from 'node-cron';
 import { loadConfig } from '../src/pipeline/config/loader.js';
 import { getDb, closeDb } from '../src/pipeline/db/connection.js';
 import { runMigrations } from '../src/pipeline/db/migrate.js';
-import { runDiscover } from '../src/pipeline/discover/index.js';
-import { runIngest } from '../src/pipeline/ingest/index.js';
-import { runQualify } from '../src/pipeline/qualify/index.js';
-import { runEnrich } from '../src/pipeline/enrich/index.js';
-import { runDraft } from '../src/pipeline/draft/index.js';
 import { runReport } from '../src/pipeline/report/index.js';
-import { runSend } from '../src/pipeline/send/index.js';
+import { runPipeline, runSendPass } from '../src/pipeline/run.js';
+import { summarizeIssues } from '../src/pipeline/util/issues.js';
+import { lockInfo } from '../src/pipeline/util/run-lock.js';
 import { startBot, stopBot } from '../src/pipeline/bot/index.js';
 import { notify } from '../src/pipeline/bot/telegram.js';
 import { logger } from '../src/pipeline/util/logger.js';
@@ -44,48 +41,45 @@ process.on('unhandledRejection', (reason) => {
   logger.error({ reason: reason?.message || String(reason) }, 'unhandledRejection (swallowed)');
 });
 
-let running = false;
-let sending = false;
+// Overlap protection lives in util/run-lock.js, shared with the Telegram
+// /run and /send commands - see pipeline/run.js.
 
 async function dailyRun() {
-  if (running) {
-    logger.warn('daily run already in progress, skipping this fire');
+  const started = Date.now();
+  logger.info({ schedule: DAILY_SCHEDULE }, 'daily run started');
+  const out = await runPipeline({ origin: 'cron:daily' });
+  if (out.busy) {
+    logger.info({ holder: out.info?.holder }, 'daily run skipped: a pipeline run is already in progress');
     return;
   }
-  running = true;
-  const started = Date.now();
+  const durationSec = Math.round((Date.now() - started) / 1000);
+  logger.info({ durationSec, issues: out.run?.issues?.length || 0 }, 'daily run complete');
+
+  let rep = null;
   try {
-    const config = loadConfig();
-    logger.info({ schedule: DAILY_SCHEDULE }, 'daily run started');
-    await runDiscover({ config });
-    await runIngest({ config });
-    await runQualify({ config });
-    await runEnrich({ config });
-    await runDraft({ config });
-    const rep = await runReport({ config });
-
-    const durationSec = Math.round((Date.now() - started) / 1000);
-    logger.info({ durationSec }, 'daily run complete');
-
-    const pending = rep?.totals?.drafts_pending ?? 0;
-    if (pending > 0) {
-      await notify(
-        [
-          '<b>Daily pipeline done.</b>',
-          `<b>${pending}</b> new draft(s) awaiting your review.`,
-          `Jobs qualified: ${rep.totals.jobs_qualified}`,
-          `Contacts: ${rep.totals.contacts_total} (${rep.totals.contacts_verified} verified)`,
-          '',
-          'Use /list to see the queue.',
-        ].join('\n'),
-      );
-    }
+    rep = await runReport({ config: loadConfig() });
   } catch (err) {
-    logger.error({ err: err.message, stack: err.stack }, 'daily run failed');
-    try { await notify(`<b>Pipeline error:</b> ${err.message.slice(0, 200)}`); } catch { /* ignore */ }
-  } finally {
-    running = false;
+    logger.error({ err: err.message }, 'daily report failed');
   }
+
+  const pending = rep?.totals?.drafts_pending ?? 0;
+  const issues = summarizeIssues(out.run?.issues);
+  // Notify when there is something to act on: drafts to review, OR problems.
+  // Previously a run that failed quietly sent nothing at all.
+  if (pending === 0 && issues.length === 0 && !out.error) return;
+  const lines = [out.error
+    ? `<b>Daily pipeline aborted:</b> ${out.error.message.slice(0, 200)}`
+    : '<b>Daily pipeline done.</b>'];
+  if (rep) {
+    lines.push(
+      `<b>${pending}</b> draft(s) awaiting your review.`,
+      `Jobs qualified: ${rep.totals.jobs_qualified}`,
+      `Contacts: ${rep.totals.contacts_total} (${rep.totals.contacts_verified} verified)`,
+    );
+  }
+  if (issues.length) lines.push('', ...issues);
+  lines.push('', pending > 0 ? 'Use /list to see the queue.' : 'Use /issues for the full list.');
+  await notify(lines.join('\n'));
 }
 
 /**
@@ -98,39 +92,28 @@ async function dailyRun() {
  * race with sending).
  */
 async function sendRun() {
-  if (running) {
-    logger.warn('daily pipeline still running, deferring send fire');
+  if (lockInfo('pipeline')) {
+    logger.info('daily pipeline still running, deferring send fire');
     return;
   }
-  if (sending) {
-    logger.warn('send already in progress, skipping this fire');
+  logger.info({ schedule: SEND_SCHEDULE }, 'send cron started');
+  const out = await runSendPass({ origin: 'cron:send' });
+  if (out.busy) {
+    logger.info({ holder: out.info?.holder }, 'send cron skipped: a send pass is already in progress');
     return;
   }
-  sending = true;
-  try {
-    const config = loadConfig();
-    logger.info({ schedule: SEND_SCHEDULE }, 'send cron started');
-    const stats = await runSend({ config });
-    logger.info(stats, 'send cron complete');
+  const stats = out.stats && !out.stats.failed ? out.stats : null;
+  logger.info(stats || {}, 'send cron complete');
 
-    const sent = (stats.initialSent || 0) + (stats.researchSent || 0)
-               + (stats.followup1Sent || 0) + (stats.followup2Sent || 0);
-    if (sent > 0) {
-      await notify(
-        [
-          '<b>Send window complete.</b>',
-          `Initial: ${stats.initialSent || 0}${stats.researchSent ? ` (+${stats.researchSent} research)` : ''}`,
-          `Follow-ups: ${(stats.followup1Sent || 0) + (stats.followup2Sent || 0)}`,
-          stats.paused ? '<b>PAUSED</b> — bounce alarm tripped.' : '',
-        ].filter(Boolean).join('\n'),
-      );
-    }
-  } catch (err) {
-    logger.error({ err: err.message, stack: err.stack }, 'send cron failed');
-    try { await notify(`<b>Send error:</b> ${err.message.slice(0, 200)}`); } catch { /* ignore */ }
-  } finally {
-    sending = false;
-  }
+  const sent = (stats?.initialSent || 0) + (stats?.researchSent || 0);
+  const issues = summarizeIssues(out.run?.issues);
+  if (sent === 0 && issues.length === 0 && !stats?.paused && !out.error) return;
+  await notify([
+    out.error ? `<b>Send window aborted:</b> ${out.error.message.slice(0, 200)}` : '<b>Send window complete.</b>',
+    stats ? `Initial: ${stats.initialSent || 0}${stats.researchSent ? ` (+${stats.researchSent} research)` : ''}` : '',
+    stats?.paused ? '<b>PAUSED</b> — bounce alarm tripped. /diag shows why.' : '',
+    ...(issues.length ? ['', ...issues] : []),
+  ].filter(Boolean).join('\n'));
 }
 
 async function main() {

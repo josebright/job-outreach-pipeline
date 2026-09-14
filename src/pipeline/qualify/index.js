@@ -45,7 +45,11 @@ export async function runQualify({ config } = {}) {
     ...jobsByStatus('ingested'),
     ...jobsByStatus('needs_review'),
     ...jobsByStatus('qualified'),
-    ...(configChanged ? jobsByStatus('disqualified') : []),
+    // Jobs the applicant rejected by hand stay dead. A config change says
+    // nothing about a decision a person made about that specific posting.
+    ...(configChanged
+      ? jobsByStatus('disqualified').filter(j => !String(j.disqualify_reason || '').startsWith('rejected:'))
+      : []),
   ];
   const stats = {
     evaluated: 0, qualified: 0, disqualified: 0, needsReview: 0,

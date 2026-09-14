@@ -5,7 +5,7 @@
 import {
   companiesByStatus, contactsByCompany, jobsByCompany,
   createDraft, existingDraftFor, updateCompanyEnrichment,
-  isCompanySuppressed, companyHasOpenDraft,
+  isCompanySuppressed, companyHasOpenDraft, redraftBlockedFor, addressBlockRules,
 } from '../db/repo.js';
 import { charge, usage } from '../enrich/cost-guard.js';
 import { loadProfile } from './profile.js';
@@ -14,6 +14,9 @@ import { verifyHookEvidence } from './hook-verify.js';
 import { gate3_skillsetMatch, gate4_companySize } from '../qualify/filters.js';
 import { companyEnrich, employeesToBand, emailCount } from '../enrich/hunter.js';
 import { logger } from '../util/logger.js';
+import { isAddressBlocked } from './rejection-rules.js';
+import { isCareersSubdomainEmail } from '../util/email-domain.js';
+import { deriveDomain } from '../enrich/index.js';
 
 // Re-export so existing tests importing from draft/index.js still work.
 export { verifyHookEvidence } from './hook-verify.js';
@@ -66,6 +69,9 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     if (ta !== tb) return ta - tb;
     return (b.score || 0) - (a.score || 0);
   });
+  // Address rules learned from the applicant's rejections, loaded once per pass.
+  const addressRules = addressBlockRules();
+
   for (const company of companies) {
     stats.companiesConsidered++;
 
@@ -90,8 +96,13 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       continue;
     }
 
+    // Drop addresses the applicant has ruled out ("has founders in the email"
+    // blocks every founders@), and careers-subdomain addresses such as
+    // founders@jobs.dropbox.com left over from before domain normalization.
     const contacts = contactsByCompany(company.id)
-      .filter(c => c.email_status !== 'invalid');
+      .filter(c => c.email_status !== 'invalid')
+      .filter(c => !isAddressBlocked(c.email, addressRules))
+      .filter(c => !isCareersSubdomainEmail(c.email));
     if (contacts.length === 0) { stats.skippedNoContact++; continue; }
 
     const qualifiedJobs = jobsByCompany(company.id)
@@ -120,17 +131,31 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
     // (Affirm, Algolia, Canonical all cached wrong values previously).
     const trusted = company.size_band_source === 'seed' || company.size_band_source === 'manual';
     if (!trusted) {
-      const domain = company.website ? new URL(
-        company.website.startsWith('http') ? company.website : `https://${company.website}`
-      ).hostname.replace(/^www\./, '') : null;
+      // deriveDomain rather than the raw website hostname. The raw form kept
+      // jobs.dropbox.com, where Hunter indexes no mail, so the size never
+      // resolved and a 3,000-person company passed the 2-500 gate. deriveDomain
+      // also falls back to the job URL when website is empty, instead of
+      // skipping this size check altogether.
+      let domain = null;
+      try {
+        domain = deriveDomain(company);
+      } catch (err) {
+        logger.warn({ err: err.message, companyId: company.id }, 'draft: could not derive a domain for the size re-check');
+      }
       if (domain) {
         try {
           // Prefer email-count as a size floor (deterministic; free) —
           // companies/find is often stale for large companies. If either
           // signal says "too big", use it.
           const [info, count] = await Promise.all([
-            companyEnrich({ domain }).catch(() => null),
-            emailCount({ domain }).catch(() => ({ total: null })),
+            companyEnrich({ domain }).catch((err) => {
+              logger.warn({ err: err.message, domain }, 'draft: companies/find failed, company size may stay unknown');
+              return null;
+            }),
+            emailCount({ domain }).catch((err) => {
+              logger.warn({ err: err.message, domain }, 'draft: email-count failed, company size may stay unknown');
+              return { total: null };
+            }),
           ]);
           let band = info ? employeesToBand(info.employeesEstimate) : null;
           if (count.total !== null && count.total >= 250) {
@@ -143,7 +168,9 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
             company.size_band = band;
             company.size_band_source = 'hunter';
           }
-        } catch { /* non-fatal */ }
+        } catch (err) {
+          logger.warn({ err: err.message, companyId: company.id }, 'draft: size re-check failed, company size stays unverified');
+        }
       }
     }
     const q6 = gate4_companySize(company, config);
@@ -164,6 +191,12 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       if (drafted) break;
       if (existingDraftFor(contact.id, topJob.id)) {
         stats.skippedExisting++;
+        continue;
+      }
+      // The applicant already rejected exactly this contact for exactly this
+      // role. Regenerating it is how #124 came back as #126, byte for byte.
+      if (redraftBlockedFor(contact.id, topJob.id)) {
+        stats.skippedRejectedBefore = (stats.skippedRejectedBefore || 0) + 1;
         continue;
       }
 

@@ -170,7 +170,11 @@ export async function extractBouncedAddresses({
   try {
     const body = await getMessageBodyText(msgId);
     parseDsnBody(body).forEach(e => found.add(e));
-  } catch { /* ignore, we tried */ }
+  } catch (err) {
+    // If this fails the bounced address may go unrecorded - it will not be
+    // suppressed and may be written to again - so it has to be visible.
+    logger.warn({ err: err.message, msgId }, 'bounce: could not read the DSN body, bounced address may be missed');
+  }
 
   return [...found];
 }

@@ -21,6 +21,7 @@
 // free and never charged.
 import { http, hostLimiter } from '../util/http.js';
 import { env } from '../config/loader.js';
+import { logger } from '../util/logger.js';
 
 const HOST = 'api.hunter.io';
 const limit = hostLimiter(HOST, 1);
@@ -43,13 +44,21 @@ export async function emailCount({ domain }) {
   if (env.HUNTER_API_KEY) params.api_key = env.HUNTER_API_KEY;
   try {
     const res = await limit(() => http.get(`https://${HOST}/v2/email-count`, { params, validateStatus: s => s < 500 }));
-    if (res.status !== 200) return { total: null };
+    if (res.status !== 200) {
+      // 429 / 401 / 403 here used to vanish, leaving company size "unknown" -
+      // which is how companies far over 500 people passed the size gate.
+      logger.warn({ status: res.status, domain, err: res.data?.errors?.[0]?.details }, 'hunter: email-count returned non-200');
+      return { total: null };
+    }
     return {
       total: res.data?.data?.total ?? null,
       personal: res.data?.data?.personal_emails ?? null,
       generic: res.data?.data?.generic_emails ?? null,
     };
-  } catch { return { total: null }; }
+  } catch (err) {
+    logger.warn({ err: err.message, domain }, 'hunter: email-count request failed');
+    return { total: null };
+  }
 }
 
 /**
