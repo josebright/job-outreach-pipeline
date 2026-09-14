@@ -17,6 +17,7 @@ import { logger } from '../util/logger.js';
 import { isAddressBlocked } from './rejection-rules.js';
 import { isCareersSubdomainEmail } from '../util/email-domain.js';
 import { deriveDomain } from '../enrich/index.js';
+import { duplicateApplicationReason } from '../send/duplicate-guard.js';
 
 // Re-export so existing tests importing from draft/index.js still work.
 export { verifyHookEvidence } from './hook-verify.js';
@@ -197,6 +198,18 @@ export async function runDraft({ config, budgetUsd = null } = {}) {
       // role. Regenerating it is how #124 came back as #126, byte for byte.
       if (redraftBlockedFor(contact.id, topJob.id)) {
         stats.skippedRejectedBefore = (stats.skippedRejectedBefore || 0) + 1;
+        continue;
+      }
+      // Already applied to this address, or to anyone at this company's mail
+      // domain, within the re-contact window - or a draft to them is already
+      // waiting. This is what catches one real company reached through a
+      // second company row, which every per-row check above misses. Checked
+      // before the LLM call so no credit is spent writing a duplicate.
+      const dup = duplicateApplicationReason({ email: contact.email, includeOpenDrafts: true });
+      if (dup) {
+        stats.skippedDuplicate = (stats.skippedDuplicate || 0) + 1;
+        logger.info({ companyId: company.id, contactId: contact.id, ...dup },
+          'draft: skipped, would duplicate an application');
         continue;
       }
 

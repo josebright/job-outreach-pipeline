@@ -20,7 +20,7 @@ import crypto from 'crypto';
 import {
   jobsByStatus, companiesByStatus, companyById, wasCompanyContactedRecently,
   setJobQualifyResult, refreshCompanyScore, setCompanyStatus,
-  isCompanySuppressed, getState, setState,
+  isCompanySuppressed, getState, setState, RECONTACT_DAYS,
 } from '../db/repo.js';
 import {
   gate1_remoteFromNigeria, gate2_payMinimum, gate3_skillsetMatch,
@@ -189,7 +189,7 @@ export function evaluateGates(job, company, config) {
   const g4 = gate4_companySize(company, config);
   if (!g4.pass) return fail(g4.reason);
 
-  const contacted = wasCompanyContactedRecently(company.id, 90);
+  const contacted = wasCompanyContactedRecently(company.id, RECONTACT_DAYS);
   const g5 = gate5_notPreviouslyContacted(contacted);
   if (!g5.pass) return fail(g5.reason);
 

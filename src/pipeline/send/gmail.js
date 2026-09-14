@@ -182,6 +182,41 @@ export async function listInboundSince({ afterEpochSec }) {
 }
 
 /**
+ * Sent-folder lookup: messages this mailbox sent to `to` in the last N days.
+ *
+ * The database can be wrong about whether something went out. A send Gmail
+ * accepted but whose response timed out, or a process killed between the Gmail
+ * call and the database write (a Railway redeploy mid send-window), leaves the
+ * draft looking unsent - and the next pass would send the same application
+ * again. The mailbox is the ground truth, so sendApprovedDraft asks it before
+ * every initial send.
+ */
+export async function findSentTo({ to, newerThanDays = 90, maxResults = 10 }) {
+  const gmail = getGmail();
+  const days = Math.max(1, Math.floor(newerThanDays));
+  const q = `in:sent to:${to} newer_than:${days}d`;
+  const list = await gmail.users.messages.list({ userId: 'me', q, maxResults });
+  const want = String(to).toLowerCase();
+  const out = [];
+  for (const { id } of list.data?.messages || []) {
+    const full = await gmail.users.messages.get({
+      userId: 'me', id, format: 'metadata', metadataHeaders: ['To', 'Cc', 'Subject', 'Date', 'Message-ID'],
+    });
+    const h = Object.fromEntries((full.data?.payload?.headers || []).map(x => [x.name.toLowerCase(), x.value]));
+    // Gmail's to: operator is a loose match; confirm the address really was a recipient.
+    if (!`${h.to || ''} ${h.cc || ''}`.toLowerCase().includes(want)) continue;
+    out.push({
+      id: full.data?.id || id,
+      threadId: full.data?.threadId || null,
+      subject: h.subject || '',
+      date: h.date || null,
+      messageId: (h['message-id'] || '').replace(/[<>]/g, '') || null,
+    });
+  }
+  return out;
+}
+
+/**
  * Fetch the full body (text/plain) of a single message. Used for bounce DSN
  * parsing when the failed address is not in the metadata headers.
  */

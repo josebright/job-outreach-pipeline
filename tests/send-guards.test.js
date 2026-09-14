@@ -65,9 +65,12 @@ describe('send guards', () => {
   });
 
   it('refuses to send once daily cap is hit', async () => {
-    const { draftId: d1, email: e1 } = seedApprovedDraft({ email: 'a@example.com' });
-    const { draftId: d2, email: e2 } = seedApprovedDraft({ email: 'b@example.com' });
-    const { draftId: d3, email: e3 } = seedApprovedDraft({ email: 'c@example.com' });
+    // Three different companies' domains. Three addresses at one domain is
+    // three applications to the same company, which the duplicate-application
+    // guard now stops before the cap is ever reached.
+    const { draftId: d1, email: e1 } = seedApprovedDraft({ email: 'a@one.io' });
+    const { draftId: d2, email: e2 } = seedApprovedDraft({ email: 'b@two.io' });
+    const { draftId: d3, email: e3 } = seedApprovedDraft({ email: 'c@three.io' });
     const opts = { kind: 'initial', caps, transport: fakeTransport };
     await sendApprovedDraft({ draft: { id: d1, status: 'approved', subject: 's', body: 'b' }, recipientEmail: e1, ...opts });
     await sendApprovedDraft({ draft: { id: d2, status: 'approved', subject: 's', body: 'b' }, recipientEmail: e2, ...opts });

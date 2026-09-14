@@ -11,15 +11,16 @@
 import {
   getSendCount, incrementSendCount, isSuppressed,
   draftsByStatus, draftById, contactById, updateDraftStatus,
-  setContactEmailStatus,
+  setContactEmailStatus, RECONTACT_DAYS,
 } from '../db/repo.js';
 import { recordEvent } from '../db/event-log.js';
 import { getDb } from '../db/connection.js';
 import { logger } from '../util/logger.js';
 import { loadProfile } from '../draft/profile.js';
-import { sendMessage } from './gmail.js';
+import { sendMessage, findSentTo } from './gmail.js';
 import { draftsDueForFollowup, followupBody, threadedSubject } from './follow-up.js';
-import { pollReplies, isPaused } from './reply-detect.js';
+import { pollReplies, isPaused, normalizeSubject } from './reply-detect.js';
+import { duplicateApplicationReason } from './duplicate-guard.js';
 import { effectiveCap } from './warmup.js';
 import { isResearchRole } from '../qualify/roles.js';
 import { isAtsEmail } from '../util/ats-domains.js';
@@ -67,6 +68,12 @@ export async function sendApprovedDraft({
   if (!isValidEmail(recipientEmail)) {
     throw new SendBlockedError('recipient_invalid_email', { recipientEmail });
   }
+  // Never the same application twice - by address, or by company mail domain
+  // across duplicate company rows. See send/duplicate-guard.js.
+  if (kind === 'initial') {
+    const dup = duplicateApplicationReason({ email: recipientEmail });
+    if (dup) throw new SendBlockedError('duplicate_application', { recipientEmail, ...dup });
+  }
   // Deliverability gate. When a min is configured, the recipient must meet
   // it. Fail-closed: missing status is treated as not meeting the bar.
   // Protects sender reputation — one risky send during warm-up can trip the
@@ -96,6 +103,29 @@ export async function sendApprovedDraft({
   const already = getSendCount(bucket);
   if (already >= cap) {
     throw new SendBlockedError('daily_cap_reached', { kind: bucket, cap, already });
+  }
+
+  // Ground truth before an initial send: is it already in the Sent folder?
+  // Runs after every other guard so no Gmail API call is spent on a draft that
+  // was going to be blocked anyway. Fails CLOSED: if the mailbox cannot be
+  // checked, nothing is sent - a duplicate application cannot be taken back,
+  // a delayed one only costs a day.
+  if (kind === 'initial' && typeof transport.findSentTo === 'function') {
+    let prior;
+    try {
+      prior = await transport.findSentTo({ to: recipientEmail, newerThanDays: RECONTACT_DAYS });
+    } catch (err) {
+      throw new SendBlockedError('sent_folder_check_failed', { recipientEmail, err: err.message });
+    }
+    if (prior && prior.length > 0) {
+      const same = prior.find(m => normalizeSubject(m.subject) === normalizeSubject(draft.subject));
+      if (same) return reconcileAlreadySent({ draft, kind, message: same });
+      throw new SendBlockedError('duplicate_application', {
+        recipientEmail,
+        code: 'already_in_sent_folder',
+        message: `your Sent folder already has "${prior[0].subject}" to ${recipientEmail} (${prior[0].date || 'recently'})`,
+      });
+    }
   }
 
   const subject = kind === 'initial' ? draft.subject : threadedSubject(draft.subject);
@@ -141,7 +171,8 @@ export async function runSend({ config } = {}) {
     replies: null, paused: false,
     initialSent: 0, researchSent: 0, followup1Sent: 0, followup2Sent: 0,
     blockedApproval: 0, blockedSuppressed: 0, blockedCap: 0, blockedUnverified: 0,
-    blockedAtsDomain: 0, blockedInvalidEmail: 0, errors: 0,
+    blockedAtsDomain: 0, blockedInvalidEmail: 0, blockedDuplicate: 0, blockedSentCheck: 0,
+    reconciledAlreadySent: 0, duplicateDraftsRejected: 0, errors: 0,
   };
   const minEmailStatus = config?.enrichment?.min_email_status_for_auto_send || null;
 
@@ -175,7 +206,7 @@ export async function runSend({ config } = {}) {
   let profile = null;
   try { profile = loadProfile(); } catch { /* fine, follow-ups will use minimal sig */ }
 
-  const transport = { send: sendMessage };
+  const transport = { send: sendMessage, findSentTo };
   const from = config.send.sender_email;
   const fromName = config.send.sender_name;
   const replyTo = config.send.reply_to || null;
@@ -190,18 +221,15 @@ export async function runSend({ config } = {}) {
     const contact = contactById(draft.contact_id);
     if (!contact) continue;
     try {
-      await sendApprovedDraft({
+      const r = await sendApprovedDraft({
         draft, recipientEmail: contact.email, kind: 'initial', caps, transport,
         fromEmail: from, fromName, replyTo,
         recipientEmailStatus: contact.email_status, minEmailStatus,
       });
-      stats.initialSent++;
+      if (r?.reconciled) stats.reconciledAlreadySent++;
+      else stats.initialSent++;
     } catch (err) {
-      catchBlocked(err, stats);
-      if (err.name === 'SendBlockedError' &&
-          (err.reason === 'recipient_ats_domain' || err.reason === 'recipient_invalid_email')) {
-        quarantineAtsContact(draft, contact, stats, err.reason);
-      }
+      handleInitialSendError(err, draft, contact, stats);
     }
     if (getSendCount('initial') >= caps.initial) break;
   }
@@ -211,15 +239,16 @@ export async function runSend({ config } = {}) {
     const contact = contactById(draft.contact_id);
     if (!contact) continue;
     try {
-      await sendApprovedDraft({
+      const r = await sendApprovedDraft({
         draft, recipientEmail: contact.email, kind: 'initial', caps, transport,
         fromEmail: from, fromName, replyTo,
         counterKind: 'initial_research',
         recipientEmailStatus: contact.email_status, minEmailStatus,
       });
-      stats.researchSent++;
+      if (r?.reconciled) stats.reconciledAlreadySent++;
+      else stats.researchSent++;
     } catch (err) {
-      catchBlocked(err, stats);
+      handleInitialSendError(err, draft, contact, stats);
     }
     if (getSendCount('initial_research') >= caps.initial_research) break;
   }
@@ -327,6 +356,51 @@ function quarantineAtsContact(draft, contact, stats, reason = 'recipient_ats_dom
     'quarantined draft aimed at an ATS/job-board address');
 }
 
+function handleInitialSendError(err, draft, contact, stats) {
+  catchBlocked(err, stats);
+  if (err.name !== 'SendBlockedError') return;
+  if (err.reason === 'recipient_ats_domain' || err.reason === 'recipient_invalid_email') {
+    quarantineAtsContact(draft, contact, stats, err.reason);
+  } else if (err.reason === 'duplicate_application') {
+    // The address itself is fine, so the contact is left alone - only this
+    // draft goes. Left approved it would be re-blocked on every pass forever.
+    updateDraftStatus(draft.id, 'rejected', {
+      reason: `auto: duplicate application - ${err.detail?.message || 'already applied'}`,
+    });
+    stats.duplicateDraftsRejected++;
+  }
+}
+
+/**
+ * The draft already went out - Gmail has it - but the database never recorded
+ * it (a send that timed out after Gmail accepted it, or a process killed before
+ * the write). Record it now instead of sending it a second time. The daily
+ * counter is left alone: it was sent on an earlier pass, not today.
+ */
+function reconcileAlreadySent({ draft, kind, message }) {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO message (draft_id, direction, kind, sent_at, thread_id, message_id)
+      VALUES (?, 'outbound', ?, COALESCE(?, datetime('now')), ?, ?)
+    `).run(draft.id, kind, toSqliteTime(message.date), message.threadId || null,
+      message.messageId || message.id || null);
+    if (kind === 'initial') updateDraftStatus(draft.id, 'sent');
+    recordEvent({
+      entity: 'draft', entityId: draft.id, event: 'sent_reconciled',
+      detail: { gmailId: message.id, threadId: message.threadId, date: message.date },
+    });
+  })();
+  logger.warn({ draftId: draft.id, gmailId: message.id, date: message.date },
+    'send: draft was already in the Sent folder - recorded as sent instead of sending it again');
+  return { reconciled: true, messageId: message.messageId || message.id, threadId: message.threadId };
+}
+
+function toSqliteTime(value) {
+  const t = value ? new Date(value) : null;
+  return t && !Number.isNaN(t.getTime()) ? t.toISOString().slice(0, 19).replace('T', ' ') : null;
+}
+
 function catchBlocked(err, stats) {
   if (err.name === 'SendBlockedError') {
     if (err.reason === 'draft_not_approved') stats.blockedApproval++;
@@ -335,6 +409,8 @@ function catchBlocked(err, stats) {
     else if (err.reason === 'recipient_unverified') stats.blockedUnverified++;
     else if (err.reason === 'recipient_ats_domain') stats.blockedAtsDomain++;
     else if (err.reason === 'recipient_invalid_email') stats.blockedInvalidEmail++;
+    else if (err.reason === 'duplicate_application') stats.blockedDuplicate++;
+    else if (err.reason === 'sent_folder_check_failed') stats.blockedSentCheck++;
     else stats.errors++;
     logger.warn({ reason: err.reason, detail: err.detail }, 'send blocked');
     return;

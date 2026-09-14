@@ -543,6 +543,55 @@ export function enrichAttemptedWithinDays(companyId, days) {
   `).get(companyId, `-${days} days`));
 }
 
+/* ── duplicate-application lookups ───────────────────────── */
+
+// The window gate5 uses before re-contacting a company. One constant, so
+// "already applied" means the same thing at qualify, draft and send time.
+export const RECONTACT_DAYS = 90;
+
+/** Most recent sent application to this exact address, or null. */
+export function lastSentDraftTo(email, days = RECONTACT_DAYS) {
+  return getDb().prepare(`
+    SELECT d.id AS draft_id, d.sent_at, lower(c.email) AS email, co.name AS company
+    FROM draft d
+    JOIN contact c  ON c.id = d.contact_id
+    JOIN company co ON co.id = c.company_id
+    WHERE d.status = 'sent' AND d.sent_at IS NOT NULL
+      AND d.sent_at > datetime('now', ?)
+      AND lower(c.email) = lower(?)
+    ORDER BY d.sent_at DESC LIMIT 1
+  `).get(`-${days} days`, email) || null;
+}
+
+/** Most recent sent application to anyone at this mail domain, or null. */
+export function lastSentDraftToDomain(domain, days = RECONTACT_DAYS) {
+  return getDb().prepare(`
+    SELECT d.id AS draft_id, d.sent_at, lower(c.email) AS email, co.name AS company
+    FROM draft d
+    JOIN contact c  ON c.id = d.contact_id
+    JOIN company co ON co.id = c.company_id
+    WHERE d.status = 'sent' AND d.sent_at IS NOT NULL
+      AND d.sent_at > datetime('now', ?)
+      AND lower(substr(c.email, instr(c.email, '@') + 1)) = lower(?)
+    ORDER BY d.sent_at DESC LIMIT 1
+  `).get(`-${days} days`, domain) || null;
+}
+
+/** An open (pending/approved) draft to this address, or to this domain when one is given. */
+export function openDraftToAddressOrDomain({ email, domain = null, excludeDraftId = null }) {
+  return getDb().prepare(`
+    SELECT d.id AS draft_id, lower(c.email) AS email, co.name AS company
+    FROM draft d
+    JOIN contact c  ON c.id = d.contact_id
+    JOIN company co ON co.id = c.company_id
+    WHERE d.status IN ('pending_review','approved')
+      AND d.id != ?
+      AND (lower(c.email) = lower(?)
+           OR (? IS NOT NULL AND lower(substr(c.email, instr(c.email, '@') + 1)) = lower(?)))
+    ORDER BY d.id ASC LIMIT 1
+  `).get(excludeDraftId ?? -1, email, domain, domain) || null;
+}
+
 export function existingDraftFor(contactId, jobId) {
   return getDb().prepare(`
     SELECT * FROM draft

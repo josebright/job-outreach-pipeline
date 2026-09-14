@@ -10,6 +10,7 @@ import {
   setDraftDeliverabilityOverride, setJobQualifyResult,
   setDraftRedraftBlocked, addRejectionRule, listRejectionRules, rejectionRuleById,
   deleteRejectionRule, addressBlockRules, usableContacts, openDraftsForContact,
+  companyHasOpenDraft, wasCompanyContactedRecently, RECONTACT_DAYS,
 } from '../db/repo.js';
 import { getDb } from '../db/connection.js';
 import { recordEvent } from '../db/event-log.js';
@@ -20,6 +21,7 @@ import { isValidEmail, isCareersSubdomainEmail } from '../util/email-domain.js';
 import { classifyRejectReason, isAddressBlocked, describeFamily } from '../draft/rejection-rules.js';
 import { runReport } from '../report/index.js';
 import { runPipeline, runSendPass } from '../run.js';
+import { duplicateApplicationReason } from '../send/duplicate-guard.js';
 import { summarizeIssues, recentIssues } from '../util/issues.js';
 import { usage } from '../enrich/cost-guard.js';
 import { loadProfile } from '../draft/profile.js';
@@ -400,9 +402,22 @@ export async function handleSend() {
   if (config.send?.followups_enabled) {
     lines.push(`followup1: ${stats.followup1Sent}`, `followup2: ${stats.followup2Sent}`);
   }
-  lines.push(
-    `blocked (approval/suppressed/cap/unverified/ats-domain/invalid-email): ${stats.blockedApproval}/${stats.blockedSuppressed}/${stats.blockedCap}/${stats.blockedUnverified}/${stats.blockedAtsDomain}/${stats.blockedInvalidEmail || 0}`,
-  );
+  const blocked = [
+    ['awaiting approval', stats.blockedApproval], ['suppressed', stats.blockedSuppressed],
+    ['daily cap', stats.blockedCap], ['unverified address', stats.blockedUnverified],
+    ['ATS/job-board address', stats.blockedAtsDomain], ['invalid address', stats.blockedInvalidEmail],
+    ['duplicate application', stats.blockedDuplicate], ['Sent-folder check failed', stats.blockedSentCheck],
+  ].filter(([, n]) => n > 0);
+  lines.push(blocked.length ? `blocked: ${blocked.map(([k, n]) => `${k} ${n}`).join(', ')}` : 'blocked: none');
+  if (stats.reconciledAlreadySent > 0) {
+    lines.push(`<i>${stats.reconciledAlreadySent} draft(s) were already in your Sent folder from an earlier attempt, so they were recorded as sent and NOT sent again.</i>`);
+  }
+  if (stats.duplicateDraftsRejected > 0) {
+    lines.push(`<i>${stats.duplicateDraftsRejected} draft(s) would have duplicated an application you already sent, so they were rejected instead.</i>`);
+  }
+  if (stats.blockedSentCheck > 0) {
+    lines.push('<i>Your Sent folder could not be checked, so those drafts were held back rather than risk a duplicate. /issues has the error.</i>');
+  }
   if (stats.paused) lines.push(pausedExplanation());
   if (stats.atsDraftsQuarantined > 0) {
     lines.push(`<i>${stats.atsDraftsQuarantined} draft(s) had an address that can never receive mail; they were rejected and the contact marked invalid so the next /run looks for a real one.</i>`);
@@ -827,6 +842,7 @@ export async function handleRun() {
     if (d.skippedNoContact > 0)      reasons.push(`${d.skippedNoContact} companies had no usable contact`);
     if (d.skippedRejectedBefore > 0) reasons.push(`${d.skippedRejectedBefore} contact + role pair(s) you already rejected`);
     if (d.skippedCompanyHasDraft > 0) reasons.push(`${d.skippedCompanyHasDraft} companies already have an open draft`);
+    if (d.skippedDuplicate > 0)      reasons.push(`${d.skippedDuplicate} would have duplicated an application already sent or waiting`);
     if (d.skippedNoJob > 0)          reasons.push(`${d.skippedNoJob} companies had no qualified job`);
     if (d.skippedBadTitle > 0)       reasons.push(`${d.skippedBadTitle} companies all failed defensive Q1`);
     if (d.skippedTooBig > 0)         reasons.push(`${d.skippedTooBig} companies too large (>500)`);
@@ -972,8 +988,27 @@ export async function handleDraftForSlug(slug) {
     return `Company ${escapeHtml(company.name)} has no jobs at all. Run /run first to ingest their ATS.`;
   }
 
-  const contact = contacts[0];
+  // The manual path used to check only for a draft to this exact contact and
+  // job, so it could open a second draft for a company or write a new
+  // application to one already applied to. It now asks the same questions as
+  // the automatic path.
+  if (companyHasOpenDraft(company.id)) {
+    return `${escapeHtml(company.name)} already has a draft waiting. Review it with /list, or /replace it for a rewrite.`;
+  }
+  if (wasCompanyContactedRecently(company.id, RECONTACT_DAYS)) {
+    return `You already applied to ${escapeHtml(company.name)} in the last ${RECONTACT_DAYS} days. Not writing a second application.`;
+  }
   const job = jobs[0];
+  let contact = null;
+  let duplicateWhy = '';
+  for (const c of contacts) {
+    const dup = duplicateApplicationReason({ email: c.email, includeOpenDrafts: true });
+    if (!dup) { contact = c; break; }
+    duplicateWhy = dup.message;
+  }
+  if (!contact) {
+    return `Not drafting ${escapeHtml(company.name)} - ${escapeHtml(duplicateWhy)}. That would be a duplicate application.`;
+  }
   if (existingDraftFor(contact.id, job.id)) {
     return `A draft already exists for ${escapeHtml(company.name)}. Use /replace on it instead.`;
   }

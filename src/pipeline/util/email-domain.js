@@ -94,3 +94,24 @@ export function isCareersSubdomainEmail(email) {
   const normalized = normalizeCompanyDomain(host);
   return Boolean(normalized) && normalized !== host;
 }
+
+// Personal / free mailbox providers. Two people at gmail.com are not one
+// company, so company-level duplicate checks must never group addresses by
+// these domains.
+export const FREE_MAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com',
+  'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'live.com', 'msn.com',
+  'icloud.com', 'me.com', 'mac.com', 'aol.com', 'proton.me', 'protonmail.com',
+  'gmx.com', 'gmx.de', 'mail.com', 'zoho.com', 'yandex.com', 'yandex.ru',
+  'hey.com', 'fastmail.com',
+]);
+
+export function emailDomainOf(email) {
+  const s = String(email || '').trim().toLowerCase();
+  const at = s.lastIndexOf('@');
+  return at > 0 && at < s.length - 1 ? s.slice(at + 1) : null;
+}
+
+export function isFreeMailDomain(domain) {
+  return FREE_MAIL_DOMAINS.has(String(domain || '').trim().toLowerCase());
+}
