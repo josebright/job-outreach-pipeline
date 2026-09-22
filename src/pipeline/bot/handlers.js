@@ -542,6 +542,57 @@ export function handleUnpause() {
 }
 
 /**
+ * Every bounced outbound in the window, joined to contact + company so the
+ * reviewer can tell whether the bounces are Hunter-verified misses (real
+ * deliverability failures) or pattern-probed risky guesses that leaked
+ * through the send guard. Defaults to 30 days because 7 days often shows
+ * nothing right after a pause has aged out.
+ */
+export function handleBouncelog(arg) {
+  const days = Math.min(Math.max(Number(arg) || 30, 1), 90);
+  const rows = getDb().prepare(`
+    SELECT
+      m.id AS msg_id, m.sent_at, m.kind,
+      c.email, c.email_status,
+      co.name AS company_name, co.slug AS company_slug
+    FROM message m
+    JOIN draft d   ON d.id  = m.draft_id
+    JOIN contact c ON c.id  = d.contact_id
+    JOIN company co ON co.id = c.company_id
+    WHERE m.direction = 'outbound' AND m.bounced = 1
+      AND m.sent_at >= datetime('now', ?)
+    ORDER BY m.sent_at DESC
+  `).all(`-${days} days`);
+
+  if (rows.length === 0) return `No bounces recorded in the last ${days}d.`;
+
+  const br = bounceRate();
+  const byStatus = rows.reduce((acc, r) => {
+    const k = r.email_status || 'unknown';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  const statusMix = Object.entries(byStatus)
+    .map(([s, n]) => `${escapeHtml(s)}=${n}`).join(' ');
+
+  const lines = [
+    `<b>Bounces, last ${days}d</b> (${rows.length} total; by status: ${statusMix})`,
+    `<i>7-day rate: ${br.pct.toFixed(1)}% (${br.bounces}/${br.total})</i>`,
+    '',
+  ];
+  for (const r of rows) {
+    const when = String(r.sent_at || '').slice(0, 10);
+    lines.push(
+      `#${r.msg_id} ${when} ${r.kind}`,
+      `  ${escapeHtml(r.email)} [${escapeHtml(r.email_status || 'unknown')}]`,
+      `  ${escapeHtml((r.company_name || '?').slice(0, 40))} (${escapeHtml(r.company_slug || '?')})`,
+      '',
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
  * Deep-diagnostic snapshot. Reports the current pool composition so we
  * can see WHY /run isn't producing drafts — bad supply, empty pool,
  * budget exhausted, whatever. Read-only; no side effects.
@@ -805,6 +856,7 @@ export function handleHelp() {
     '/unblock &lt;slug&gt; — remove a company from the blocklist',
     '/suppressed — list all suppressed companies',
     '/unpause — lift the bounce-alarm send pause',
+    '/bouncelog [days] — list every bounced outbound with contact + company (default 30d)',
     '/cleanup — reject unsendable, superseded and duplicate drafts',
     '/rules — what your rejections have taught the pipeline',
     '/forget &lt;n&gt; — undo a learned rule',

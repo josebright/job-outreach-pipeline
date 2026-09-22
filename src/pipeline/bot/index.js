@@ -10,7 +10,7 @@ import {
   handleSend, handleStatus, handleHelp,
   handleRun, handleReplace, handleDraftForSlug, handleAddCompany,
   handleDiag, handleSetSize,
-  handleSuppress, handleUnblock, handleSuppressed, handleUnpause, handleCleanup,
+  handleSuppress, handleUnblock, handleSuppressed, handleUnpause, handleBouncelog, handleCleanup,
   handleRules, handleForget, handleIssues,
 } from './handlers.js';
 
@@ -94,6 +94,7 @@ export function startBot() {
   bot.command('unblock',    guard('unblock',    (ctx) => handleUnblock(argOf(ctx))));
   bot.command('suppressed', guard('suppressed', () => handleSuppressed()));
   bot.command('unpause',    guard('unpause',    () => handleUnpause()));
+  bot.command('bouncelog',  guard('bouncelog',  (ctx) => handleBouncelog(argOf(ctx))));
   bot.command('cleanup',    guard('cleanup',    () => handleCleanup()));
   bot.command('rules',      guard('rules',      () => handleRules()));
   bot.command('forget',     guard('forget',     (ctx) => handleForget(argOf(ctx))));
